@@ -1,3 +1,6 @@
+# database
+*.db
+
 # Prerequisites
 *.d
 
