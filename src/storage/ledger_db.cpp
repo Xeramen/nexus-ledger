@@ -42,6 +42,51 @@ bool LedgerDB::execute(const std::string& sql) {
     return true;
 }
 
+bool LedgerDB::ensureWalletExists(const std::string& address) {
+    const char* check_sql = "SELECT address FROM wallets WHERE address = ?;";
+    sqlite3_stmt* stmt;
+    
+    if (sqlite3_prepare_v2(db, check_sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_text(stmt, 1, address.c_str(), -1, SQLITE_STATIC);
+    
+    bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    
+    if (!exists) {
+        const char* insert_sql = "INSERT INTO wallets (address, public_key, created_at) VALUES (?, ?, ?);";
+        
+        if (sqlite3_prepare_v2(db, insert_sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            return false;
+        }
+        
+        sqlite3_bind_text(stmt, 1, address.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, ("generated_" + address).c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_int64(stmt, 3, time(nullptr));
+        
+        bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        
+        return success;
+    }
+    
+    return true;
+}
+
+bool LedgerDB::beginTransaction() {
+    return execute("BEGIN TRANSACTION;");
+}
+
+bool LedgerDB::commitTransaction() {
+    return execute("COMMIT;");
+}
+
+bool LedgerDB::rollbackTransaction() {
+    return execute("ROLLBACK;");
+}
+
 bool LedgerDB::addBlock(const Block& block) {
     const char* sql = "INSERT INTO blocks (height, hash, prev_hash, merkle_root, timestamp, nonce, difficulty, mined_by, tx_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
     
@@ -175,6 +220,23 @@ bool LedgerDB::addTransaction(const Transaction& tx, int blockHeight) {
     return rc == SQLITE_DONE;
 }
 
+bool LedgerDB::updateTransactionStatus(const std::string& txHash, const std::string& status) {
+    const char* sql = "UPDATE transactions SET status = ? WHERE tx_hash = ?;";
+    
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_text(stmt, 1, status.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, txHash.c_str(), -1, SQLITE_STATIC);
+    
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    return rc == SQLITE_DONE;
+}
+
 std::vector<Transaction> LedgerDB::getTransactionsByBlock(int height) {
     std::vector<Transaction> txs;
     const char* sql = "SELECT * FROM transactions WHERE block_height = ?;";
@@ -264,6 +326,8 @@ std::optional<Transaction> LedgerDB::getTransactionByHash(const std::string& has
 }
 
 double LedgerDB::getBalance(const std::string& address) {
+    ensureWalletExists(address);
+    
     const char* sql = "SELECT balance FROM wallet_balance WHERE address = ?;";
     sqlite3_stmt* stmt;
     

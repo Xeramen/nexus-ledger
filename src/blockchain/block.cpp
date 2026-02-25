@@ -1,8 +1,9 @@
 #include "block.h"
 #include <sstream>
+#include <iostream>
 
 Block::Block() 
-    : height(0), timestamp(time(nullptr)), nonce(0), difficulty(1) {
+    : height(0), timestamp(time(nullptr)), nonce(0), difficulty(2) {
 }
 
 std::string Block::calculateHash() const {

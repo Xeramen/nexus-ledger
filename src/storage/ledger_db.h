@@ -15,12 +15,15 @@ public:
     LedgerDB(const std::string& path);
     ~LedgerDB();
     
+    bool ensureWalletExists(const std::string& address);
+    
     bool addBlock(const Block& block);
     std::optional<Block> getBlockByHeight(int height);
     std::optional<Block> getBlockByHash(const std::string& hash);
     int getLatestHeight();
     
     bool addTransaction(const Transaction& tx, int blockHeight = -1);
+    bool updateTransactionStatus(const std::string& txHash, const std::string& status);
     std::vector<Transaction> getTransactionsByBlock(int height);
     std::optional<Transaction> getTransactionByHash(const std::string& hash);
     
@@ -29,4 +32,8 @@ public:
     bool addToMempool(const Transaction& tx);
     std::vector<Transaction> getMempool();
     void clearMempool();
+    
+    bool beginTransaction();
+    bool commitTransaction();
+    bool rollbackTransaction();
 };
