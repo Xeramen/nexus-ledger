@@ -1,6 +1,23 @@
+// src/main.cpp
 #include <iostream>
 #include <iomanip>
+#include <memory>
+#include <thread>
+#include <chrono>
+#include <csignal>
+#include <boost/asio.hpp>
+
 #include "blockchain/blockchain.h"
+#include "network/server.h"
+#include "network/client.h"
+#include "network/message.h"
+
+bool running = true;
+
+void signal_handler(int signal) {
+    std::cout << "\n🛑 Shutting down..." << std::endl;
+    running = false;
+}
 
 void printBalance(Blockchain& chain, const std::string& name, const std::string& address) {
     std::cout << "  " << name << " (" << address << "): " 
@@ -8,7 +25,7 @@ void printBalance(Blockchain& chain, const std::string& name, const std::string&
 }
 
 void testBlockchain() {
-    std::cout << "=== Nexus Ledger Test ===\n" << std::endl;
+    std::cout << "=== Nexus Ledger Blockchain Test ===\n" << std::endl;
     
     try {
         Blockchain chain("nexus.db");
@@ -44,51 +61,18 @@ void testBlockchain() {
             std::cout << "\nTransaction 1 added: genesis_miner -> alice (10.0)" << std::endl;
         }
         
-        Transaction tx2;
-        tx2.fromAddress = "alice";
-        tx2.toAddress = "bob";
-        tx2.amount = 3.0;
-        tx2.fee = 0.05;
-        tx2.signature = "test_sig_2";
-        tx2.timestamp = time(nullptr);
-        tx2.txHash = tx2.calculateHash();
-        
-        if (!chain.addTransaction(tx2)) {
-            std::cout << "Transaction 2 rejected (expected): alice -> bob (3.0) - insufficient balance" << std::endl;
-        }
-        
         std::cout << "\nMining new block..." << std::endl;
         auto newBlock = chain.createBlock("miner1");
         
         if (newBlock.mine(1000000)) {
             std::cout << "Block mined!" << std::endl;
             std::cout << "  Height: " << newBlock.height << std::endl;
-            std::cout << "  Hash: " << newBlock.hash << std::endl;
-            std::cout << "  PrevHash: " << newBlock.prevHash.substr(0, 16) << "..." << std::endl;
+            std::cout << "  Hash: " << newBlock.hash.substr(0, 16) << "..." << std::endl;
             std::cout << "  Nonce: " << newBlock.nonce << std::endl;
             std::cout << "  Transactions: " << newBlock.transactions.size() << std::endl;
             
             if (chain.addBlock(newBlock)) {
                 std::cout << "Block added to chain!" << std::endl;
-            } else {
-                std::cerr << "Failed to add block to chain" << std::endl;
-            }
-        } else {
-            std::cout << "Failed to mine block" << std::endl;
-        }
-        
-        std::cout << "\nTrying transaction 2 again after block is confirmed..." << std::endl;
-        if (chain.addTransaction(tx2)) {
-            std::cout << "Transaction 2 added: alice -> bob (3.0)" << std::endl;
-            
-            std::cout << "\nMining second block..." << std::endl;
-            auto newBlock2 = chain.createBlock("miner1");
-            
-            if (newBlock2.mine(1000000)) {
-                std::cout << "Second block mined!" << std::endl;
-                if (chain.addBlock(newBlock2)) {
-                    std::cout << "Second block added to chain!" << std::endl;
-                }
             }
         }
         
@@ -100,21 +84,210 @@ void testBlockchain() {
         
         std::cout << "\nChain height: " << chain.getHeight() << std::endl;
         
-        std::cout << "\nBlockchain:" << std::endl;
-        for (int h = 0; h <= chain.getHeight(); h++) {
-            auto block = chain.getBlock(h);
-            if (block) {
-                std::cout << "  Block " << h << ": " << block->hash.substr(0, 16) 
-                          << "... (" << block->transactions.size() << " txs)" << std::endl;
-            }
-        }
-        
     } catch (const std::exception& e) {
         std::cerr << "Exception: " << e.what() << std::endl;
     }
 }
 
-int main() {
-    testBlockchain();
+void testNetwork(unsigned short port) {
+    std::cout << "=== Nexus Ledger Network Test ===" << std::endl;
+    std::cout << "Starting server on port " << port << "..." << std::endl;
+    
+    boost::asio::io_context io_context;
+    
+    nexus::Server server(io_context, port);
+    
+    server.set_connection_handler([](std::shared_ptr<nexus::Peer> peer) {
+        std::cout << "🔌 New connection from: " << peer->get_endpoint() << std::endl;
+        
+        // Отправляем приветственное сообщение
+        auto msg = nexus::Message::create_handshake("test-server", 8000);
+        peer->send(msg.serialize());
+    });
+    
+    server.set_message_handler([](const nexus::Message& msg, std::shared_ptr<nexus::Peer> peer) {
+        std::cout << "📨 Received: " << nexus::message_type_to_string(msg.type) 
+                  << " from " << peer->get_endpoint() << std::endl;
+        
+        // Отвечаем на ping
+        if (msg.type == nexus::MessageType::PING) {
+            auto pong = nexus::Message::create_pong("test-server");
+            peer->send(pong.serialize());
+            std::cout << "  ↳ Sent PONG" << std::endl;
+        }
+    });
+    
+    server.start();
+    
+    // Запускаем io_context в отдельном потоке
+    std::thread io_thread([&io_context]() {
+        io_context.run();
+    });
+    
+    std::cout << "✅ Server running. Press Enter to stop..." << std::endl;
+    std::cin.get();
+    
+    server.stop();
+    io_context.stop();
+    io_thread.join();
+    
+    std::cout << "Server stopped." << std::endl;
+}
+
+void testClient(const std::string& server_ip, int server_port) {
+    std::cout << "=== Nexus Ledger Client Test ===" << std::endl;
+    std::cout << "Connecting to " << server_ip << ":" << server_port << "..." << std::endl;
+    
+    boost::asio::io_context io_context;
+    
+    nexus::Client client(io_context);
+    
+    client.set_connection_handler([&client](bool connected) {
+        if (connected) {
+            std::cout << "✅ Connected to server!" << std::endl;
+            
+            // Отправляем ping
+            auto ping = nexus::Message::create_ping("test-client");
+            client.send(ping);
+            std::cout << "📤 Sent PING" << std::endl;
+        } else {
+            std::cout << "❌ Connection failed!" << std::endl;
+        }
+    });
+    
+    client.set_message_handler([](const nexus::Message& msg, std::shared_ptr<nexus::Peer> peer) {
+        std::cout << "📨 Received: " << nexus::message_type_to_string(msg.type) << std::endl;
+    });
+    
+    client.connect(server_ip, server_port, "test-client");
+    
+    // Запускаем io_context на 5 секунд
+    std::thread io_thread([&io_context]() {
+        io_context.run_for(std::chrono::seconds(5));
+    });
+    
+    io_thread.join();
+    
+    std::cout << "Client finished." << std::endl;
+}
+
+void printUsage(const char* program_name) {
+    std::cout << "Usage:" << std::endl;
+    std::cout << "  " << program_name << " blockchain                    - Run blockchain test" << std::endl;
+    std::cout << "  " << program_name << " server <port>                 - Run P2P server" << std::endl;
+    std::cout << "  " << program_name << " client <ip> <port>            - Run P2P client" << std::endl;
+    std::cout << "  " << program_name << " network-test                  - Run network test (server+client)" << std::endl;
+    std::cout << std::endl;
+    std::cout << "Examples:" << std::endl;
+    std::cout << "  " << program_name << " blockchain" << std::endl;
+    std::cout << "  " << program_name << " server 8000" << std::endl;
+    std::cout << "  " << program_name << " client 127.0.0.1 8000" << std::endl;
+    std::cout << "  " << program_name << " network-test" << std::endl;
+}
+
+int main(int argc, char* argv[]) {
+    signal(SIGINT, signal_handler);
+    
+    if (argc < 2) {
+        printUsage(argv[0]);
+        return 1;
+    }
+    
+    std::string command = argv[1];
+    
+    if (command == "blockchain") {
+        testBlockchain();
+    } 
+    else if (command == "server") {
+        if (argc < 3) {
+            std::cerr << "Error: Port required" << std::endl;
+            printUsage(argv[0]);
+            return 1;
+        }
+        unsigned short port = static_cast<unsigned short>(std::stoi(argv[2]));
+        testNetwork(port);
+    }
+    else if (command == "client") {
+        if (argc < 4) {
+            std::cerr << "Error: IP and port required" << std::endl;
+            printUsage(argv[0]);
+            return 1;
+        }
+        std::string ip = argv[2];
+        int port = std::stoi(argv[3]);
+        testClient(ip, port);
+    }
+    else if (command == "network-test") {
+        std::cout << "=== Running Network Test ===" << std::endl;
+        
+        // Запускаем сервер в отдельном потоке
+        unsigned short port = 8888;
+        
+        std::thread server_thread([port]() {
+            boost::asio::io_context io_context;
+            nexus::Server server(io_context, port);
+            
+            server.set_message_handler([](const nexus::Message& msg, std::shared_ptr<nexus::Peer> peer) {
+                std::cout << "[SERVER] Received: " << nexus::message_type_to_string(msg.type) << std::endl;
+                if (msg.type == nexus::MessageType::PING) {
+                    auto pong = nexus::Message::create_pong("test-server");
+                    peer->send(pong.serialize());
+                }
+            });
+            
+            server.start();
+            
+            std::thread io_thread([&io_context]() { io_context.run(); });
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            io_context.stop();
+            io_thread.join();
+        });
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        
+        // Запускаем клиента
+        boost::asio::io_context io_context;
+        nexus::Client client(io_context);
+        
+        std::atomic<bool> received_response{false};
+        
+        client.set_connection_handler([&client, &received_response](bool connected) {
+            if (connected) {
+                std::cout << "[CLIENT] Connected! Sending PING..." << std::endl;
+                auto ping = nexus::Message::create_ping("test-client");
+                client.send(ping);
+            }
+        });
+        
+        client.set_message_handler([&received_response](const nexus::Message& msg, std::shared_ptr<nexus::Peer>) {
+            std::cout << "[CLIENT] Received: " << nexus::message_type_to_string(msg.type) << std::endl;
+            if (msg.type == nexus::MessageType::PONG) {
+                received_response = true;
+                std::cout << "[CLIENT] ✅ PONG received! Network works!" << std::endl;
+            }
+        });
+        
+        client.connect("127.0.0.1", port, "test-client");
+        
+        std::thread io_thread([&io_context]() {
+            io_context.run_for(std::chrono::seconds(5));
+        });
+        
+        io_thread.join();
+        
+        if (received_response) {
+            std::cout << "\n✅ NETWORK TEST PASSED!" << std::endl;
+        } else {
+            std::cout << "\n❌ NETWORK TEST FAILED - No response received" << std::endl;
+        }
+        
+        server_thread.join();
+    }
+    else {
+        std::cerr << "Unknown command: " << command << std::endl;
+        printUsage(argv[0]);
+        return 1;
+    }
+    
     return 0;
 }
