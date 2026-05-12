@@ -21,12 +21,12 @@ set(SOURCES
     src/blockchain/transaction.cpp
     src/blockchain/block.cpp
     src/blockchain/blockchain.cpp
-    # Сеть (НОВЫЕ ФАЙЛЫ!)
+    # Сеть
     src/network/peer.cpp
     src/network/server.cpp
     src/network/client.cpp
-    # Ядро (будет позже)
-    # src/core/node.cpp
+    # Ядро
+    src/core/node.cpp
     # Метрики (будет позже)
     # src/metrics/metrics_registry.cpp
 )

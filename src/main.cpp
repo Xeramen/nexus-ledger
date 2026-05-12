@@ -12,6 +12,10 @@
 #include "network/client.h"
 #include "network/message.h"
 
+#include "core/node.h"
+
+using namespace nexus;
+
 bool running = true;
 
 void signal_handler(int signal) {
@@ -177,6 +181,7 @@ void printUsage(const char* program_name) {
     std::cout << "  " << program_name << " server <port>                 - Run P2P server" << std::endl;
     std::cout << "  " << program_name << " client <ip> <port>            - Run P2P client" << std::endl;
     std::cout << "  " << program_name << " network-test                  - Run network test (server+client)" << std::endl;
+    std::cout << "  " << program_name << " node <port> <db> [connect_ip:port]" << std::endl;
     std::cout << std::endl;
     std::cout << "Examples:" << std::endl;
     std::cout << "  " << program_name << " blockchain" << std::endl;
@@ -283,6 +288,43 @@ int main(int argc, char* argv[]) {
         
         server_thread.join();
     }
+
+    else if (command == "node") {
+        if (argc < 3) {
+            std::cerr << "Error: Port required" << std::endl;
+            std::cout << "Usage: " << argv[0] << " node <port> [db_path] [connect_ip:port]" << std::endl;
+            return 1;
+        }
+        int node_port = std::stoi(argv[2]);
+        std::string dbPath = (argc > 3) ? argv[3] : "nexus.db";
+        std::string connectTo = (argc > 4) ? argv[4] : "";
+        
+        std::cout << "=== Starting Nexus Node ===" << std::endl;
+        std::cout << "Node ID: node_" << node_port << std::endl;
+        std::cout << "P2P port: " << node_port << std::endl;
+        std::cout << "Database: " << dbPath << std::endl;
+        if (!connectTo.empty()) {
+            std::cout << "Connect to: " << connectTo << std::endl;
+        }
+        
+        nexus::Node node(dbPath, node_port, "node_" + std::to_string(node_port));
+        node.start();
+        
+        if (!connectTo.empty()) {
+            size_t colon = connectTo.find(':');
+            if (colon != std::string::npos) {
+                std::string ip = connectTo.substr(0, colon);
+                int remote_port = std::stoi(connectTo.substr(colon + 1));
+                node.connectToPeer(ip, remote_port);
+            }
+        }
+        
+        std::cout << "Node running. Press Enter to stop..." << std::endl;
+        std::cin.get();
+        
+        node.stop();
+    }
+
     else {
         std::cerr << "Unknown command: " << command << std::endl;
         printUsage(argv[0]);

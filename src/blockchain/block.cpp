@@ -60,3 +60,53 @@ bool Block::validate() const {
     
     return true;
 }
+
+// В конец файла block.cpp добавь:
+
+nlohmann::json Block::toJson() const {
+    nlohmann::json j;
+    j["height"] = height;
+    j["hash"] = hash;
+    j["prevHash"] = prevHash;
+    j["merkleRoot"] = merkleRoot;
+    j["timestamp"] = timestamp;
+    j["nonce"] = nonce;
+    j["difficulty"] = difficulty;
+    j["minedBy"] = minedBy;
+    
+    nlohmann::json txs = nlohmann::json::array();
+    for (const auto& tx : transactions) {
+        txs.push_back(tx.toJson());
+    }
+    j["transactions"] = txs;
+    
+    return j;
+}
+
+void Block::fromJson(const nlohmann::json& j) {
+    height = j.value("height", 0);
+    hash = j.value("hash", "");
+    prevHash = j.value("prevHash", "");
+    merkleRoot = j.value("merkleRoot", "");
+    timestamp = j.value("timestamp", 0L);
+    nonce = j.value("nonce", 0);
+    difficulty = j.value("difficulty", 2.0);
+    minedBy = j.value("minedBy", "");
+    
+    transactions.clear();
+    if (j.contains("transactions") && j["transactions"].is_array()) {
+        for (const auto& txJson : j["transactions"]) {
+            Transaction tx;
+            tx.fromAddress = txJson.value("from", "");
+            tx.toAddress = txJson.value("to", "");
+            tx.amount = txJson.value("amount", 0.0);
+            tx.fee = txJson.value("fee", 0.0);
+            tx.signature = txJson.value("signature", "");
+            tx.timestamp = txJson.value("timestamp", 0L);
+            tx.data = txJson.value("data", "");
+            tx.status = txJson.value("status", "pending");
+            tx.txHash = tx.calculateHash();
+            transactions.push_back(tx);
+        }
+    }
+}

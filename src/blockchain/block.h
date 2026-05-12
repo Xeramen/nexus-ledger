@@ -4,6 +4,7 @@
 #include <ctime>
 #include "transaction.h"
 #include "../crypto/crypto.h"
+#include <nlohmann/json.hpp>
 
 struct Block {
     int height;
@@ -21,4 +22,9 @@ struct Block {
     std::string calculateMerkleRoot() const;
     bool mine(int maxNonce = 1000000);
     bool validate() const;
+
+    // Добавь в конец public секции класса Block (после bool validate() const;):
+
+    nlohmann::json toJson() const;
+    void fromJson(const nlohmann::json& j);
 };

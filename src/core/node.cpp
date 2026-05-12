@@ -1,0 +1,247 @@
+// src/core/node.cpp
+#include "node.h"
+#include <iostream>
+
+namespace nexus {
+
+Node::Node(const std::string& dbPath, int p2pPort, const std::string& nodeId)
+    : nodeId_(nodeId), p2pPort_(p2pPort)
+    , work_(std::make_unique<boost::asio::io_context::work>(ioContext_)) {
+    
+    blockchain_ = std::make_unique<Blockchain>(dbPath);
+    server_ = std::make_unique<Server>(ioContext_, p2pPort);
+    setupHandlers();
+    
+    std::cout << "✅ Node created: " << nodeId_ << " (port " << p2pPort_ << ")" << std::endl;
+}
+
+Node::~Node() {
+    stop();
+}
+
+void Node::setupHandlers() {
+    server_->set_message_handler([this](const Message& msg, std::shared_ptr<Peer> peer) {
+        handleMessage(msg, peer);
+    });
+    
+    server_->set_connection_handler([this](std::shared_ptr<Peer> peer) {
+        handleConnection(peer);
+    });
+}
+
+void Node::start() {
+    if (running_) return;
+    running_ = true;
+    
+    server_->start();
+    
+    ioThread_ = std::thread([this]() {
+        ioContext_.run();
+    });
+    
+    std::cout << "🚀 Node " << nodeId_ << " started on port " << p2pPort_ << std::endl;
+}
+
+void Node::stop() {
+    if (!running_) return;
+    running_ = false;
+    
+    server_->stop();
+    work_.reset();
+    
+    if (ioThread_.joinable()) {
+        ioThread_.join();
+    }
+    
+    std::cout << "🛑 Node " << nodeId_ << " stopped" << std::endl;
+}
+
+void Node::connectToPeer(const std::string& ip, int port) {
+    auto client = std::make_shared<Client>(ioContext_);
+    
+    client->set_message_handler([this](const Message& msg, std::shared_ptr<Peer> peer) {
+        handleMessage(msg, peer);
+    });
+    
+    client->set_connection_handler([this, client](bool connected) {
+        if (connected) {
+            clients_.push_back(client);
+            auto handshake = Message::create_handshake(nodeId_, p2pPort_);
+            client->send(handshake);
+            syncWithPeer(client->get_peer());
+            updateStats();
+        }
+    });
+    
+    client->connect(ip, port, nodeId_);
+}
+
+void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
+    std::cout << "📨 Received " << message_type_to_string(msg.type) << " from " << peer->get_endpoint() << std::endl;
+    
+    switch (msg.type) {
+        case MessageType::HANDSHAKE:
+            peer->id = msg.sender_id;
+            std::cout << "🤝 Handshake with " << peer->id << std::endl;
+            break;
+            
+        case MessageType::PING:
+            peer->send(Message::create_pong(nodeId_).serialize());
+            break;
+            
+        case MessageType::GET_PEERS:
+            broadcastPeers();
+            break;
+            
+        case MessageType::PEERS_LIST:
+            if (msg.payload.is_array()) {
+                for (const auto& p : msg.payload) {
+                    std::string ip = p.value("ip", "");
+                    int port = p.value("port", 0);
+                    if (!ip.empty() && port > 0 && port != p2pPort_) {
+                        connectToPeer(ip, port);
+                    }
+                }
+            }
+            break;
+            
+        case MessageType::GET_BLOCKS: {
+            int from = msg.payload.value("from_height", 0);
+            std::vector<Block> blocks;
+            for (int h = from; h <= blockchain_->getHeight(); ++h) {
+                auto block = blockchain_->getBlock(h);
+                if (block) blocks.push_back(*block);
+            }
+            nlohmann::json jsonBlocks = nlohmann::json::array();
+            for (const auto& b : blocks) {
+                jsonBlocks.push_back(b.toJson());
+            }
+            Message response;
+            response.type = MessageType::BLOCKS_RESPONSE;
+            response.sender_id = nodeId_;
+            response.payload = jsonBlocks;
+            peer->send(response.serialize());
+            break;
+        }
+        
+        case MessageType::BLOCKS_RESPONSE:
+            if (msg.payload.is_array()) {
+                for (const auto& bj : msg.payload) {
+                    Block block;
+                    block.height = bj.value("height", 0);
+                    block.hash = bj.value("hash", "");
+                    block.prevHash = bj.value("prevHash", "");
+                    block.merkleRoot = bj.value("merkleRoot", "");
+                    block.timestamp = bj.value("timestamp", 0L);
+                    block.nonce = bj.value("nonce", 0);
+                    block.difficulty = bj.value("difficulty", 2.0);
+                    block.minedBy = bj.value("minedBy", "");
+                    blockchain_->addBlock(block);
+                }
+            }
+            break;
+            
+        case MessageType::NEW_TRANSACTION: {
+            Transaction tx;
+            tx.fromAddress = msg.payload.value("from", "");
+            tx.toAddress = msg.payload.value("to", "");
+            tx.amount = msg.payload.value("amount", 0.0);
+            blockchain_->addTransaction(tx);
+            broadcastTransaction(tx);
+            break;
+        }
+        
+        case MessageType::NEW_BLOCK: {
+            Block block;
+            block.height = msg.payload.value("height", 0);
+            block.hash = msg.payload.value("hash", "");
+            block.prevHash = msg.payload.value("prevHash", "");
+            block.merkleRoot = msg.payload.value("merkleRoot", "");
+            block.timestamp = msg.payload.value("timestamp", 0L);
+            block.nonce = msg.payload.value("nonce", 0);
+            block.difficulty = msg.payload.value("difficulty", 2.0);
+            block.minedBy = msg.payload.value("minedBy", "");
+            if (blockchain_->addBlock(block)) {
+                broadcastBlock(block);
+                std::cout << "🧱 New block #" << block.height << " from " << peer->get_endpoint() << std::endl;
+            }
+            break;
+        }
+        
+        default:
+            break;
+    }
+}
+
+void Node::handleConnection(std::shared_ptr<Peer> peer) {
+    std::cout << "🔌 New connection from " << peer->get_endpoint() << std::endl;
+    auto handshake = Message::create_handshake(nodeId_, p2pPort_);
+    peer->send(handshake.serialize());
+}
+
+void Node::syncWithPeer(std::shared_ptr<Peer> peer) {
+    Message req;
+    req.type = MessageType::GET_BLOCKS;
+    req.sender_id = nodeId_;
+    req.payload = {{"from_height", blockchain_->getHeight() + 1}};
+    peer->send(req.serialize());
+    
+    Message getPeers;
+    getPeers.type = MessageType::GET_PEERS;
+    getPeers.sender_id = nodeId_;
+    peer->send(getPeers.serialize());
+}
+
+void Node::broadcastPeers() {
+    nlohmann::json arr = nlohmann::json::array();
+    for (auto& c : clients_) {
+        arr.push_back({{"ip", c->get_peer()->address}, {"port", c->get_peer()->port}});
+    }
+    Message msg;
+    msg.type = MessageType::PEERS_LIST;
+    msg.sender_id = nodeId_;
+    msg.payload = arr;
+    for (auto& c : clients_) {
+        c->send(msg);
+    }
+}
+
+void Node::broadcastTransaction(const Transaction& tx) {
+    Message msg;
+    msg.type = MessageType::NEW_TRANSACTION;
+    msg.sender_id = nodeId_;
+    msg.payload = {
+        {"from", tx.fromAddress},
+        {"to", tx.toAddress},
+        {"amount", tx.amount}
+    };
+    for (auto& c : clients_) {
+        c->send(msg);
+    }
+}
+
+void Node::broadcastBlock(const Block& block) {
+    Message msg;
+    msg.type = MessageType::NEW_BLOCK;
+    msg.sender_id = nodeId_;
+    msg.payload = {
+        {"height", block.height},
+        {"hash", block.hash},
+        {"prevHash", block.prevHash},
+        {"merkleRoot", block.merkleRoot},
+        {"timestamp", block.timestamp},
+        {"nonce", block.nonce},
+        {"difficulty", block.difficulty},
+        {"minedBy", block.minedBy}
+    };
+    for (auto& c : clients_) {
+        c->send(msg);
+    }
+}
+
+void Node::updateStats() {
+    std::cout << "📊 Connected peers: " << clients_.size()
+              << " | Chain height: " << blockchain_->getHeight() << std::endl;
+}
+
+} // namespace nexus
