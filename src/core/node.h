@@ -10,12 +10,13 @@
 #include "../network/server.h"
 #include "../network/client.h"
 #include "../network/message.h"
+#include "../metrics/metrics_registry.h"
 
 namespace nexus {
 
 class Node {
 public:
-    Node(const std::string& dbPath, int p2pPort, const std::string& nodeId);
+    Node(const std::string& dbPath, int p2pPort, int metricsPort, const std::string& nodeId);
     ~Node();
 
     void start();
@@ -30,12 +31,14 @@ private:
     void broadcastPeers();
     void broadcastTransaction(const Transaction& tx);
     void broadcastBlock(const Block& block);
-    void updateStats();
+    void updateMetrics();  // ← ДОБАВЬ ЭТУ СТРОКУ
 
     std::string nodeId_;
     int p2pPort_;
+    int metricsPort_;  // ← ДОБАВЬ ЭТУ СТРОКУ
     std::unique_ptr<Blockchain> blockchain_;
     std::unique_ptr<Server> server_;
+    std::unique_ptr<MetricsRegistry> metrics_;
     std::vector<std::shared_ptr<Client>> clients_;
     std::atomic<bool> running_{false};
 

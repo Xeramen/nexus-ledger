@@ -28,11 +28,12 @@ void printBalance(Blockchain& chain, const std::string& name, const std::string&
               << std::fixed << std::setprecision(2) << chain.getBalance(address) << std::endl;
 }
 
-void testBlockchain() {
+void testBlockchain(const std::string& dbPath) {
     std::cout << "=== Nexus Ledger Blockchain Test ===\n" << std::endl;
+    std::cout << "Database: " << dbPath << std::endl << std::endl;
     
     try {
-        Blockchain chain("nexus.db");
+        Blockchain chain(dbPath);
         
         std::cout << "Current chain height: " << chain.getHeight() << std::endl;
         
@@ -177,17 +178,19 @@ void testClient(const std::string& server_ip, int server_port) {
 
 void printUsage(const char* program_name) {
     std::cout << "Usage:" << std::endl;
-    std::cout << "  " << program_name << " blockchain                    - Run blockchain test" << std::endl;
+    std::cout << "  " << program_name << " blockchain [db_path]          - Run blockchain test" << std::endl;
     std::cout << "  " << program_name << " server <port>                 - Run P2P server" << std::endl;
     std::cout << "  " << program_name << " client <ip> <port>            - Run P2P client" << std::endl;
-    std::cout << "  " << program_name << " network-test                  - Run network test (server+client)" << std::endl;
-    std::cout << "  " << program_name << " node <port> <db> [connect_ip:port]" << std::endl;
+    std::cout << "  " << program_name << " network-test                  - Run network test" << std::endl;
+    std::cout << "  " << program_name << " node <p2p_port> <db_path> <metrics_port> [connect_to] - Run P2P node" << std::endl;
     std::cout << std::endl;
     std::cout << "Examples:" << std::endl;
     std::cout << "  " << program_name << " blockchain" << std::endl;
+    std::cout << "  " << program_name << " blockchain node1.db" << std::endl;
     std::cout << "  " << program_name << " server 8000" << std::endl;
     std::cout << "  " << program_name << " client 127.0.0.1 8000" << std::endl;
-    std::cout << "  " << program_name << " network-test" << std::endl;
+    std::cout << "  " << program_name << " node 8000 node1.db 9100" << std::endl;
+    std::cout << "  " << program_name << " node 8001 node2.db 9101 127.0.0.1:8000" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -201,7 +204,12 @@ int main(int argc, char* argv[]) {
     std::string command = argv[1];
     
     if (command == "blockchain") {
-        testBlockchain();
+        std::string dbPath = "nexus.db"; // значение по умолчанию
+        if (argc > 2) {
+            dbPath = argv[2];
+        }
+        std::cout << "Using database: " << dbPath << std::endl;
+        testBlockchain(dbPath);
     } 
     else if (command == "server") {
         if (argc < 3) {
@@ -290,38 +298,40 @@ int main(int argc, char* argv[]) {
     }
 
     else if (command == "node") {
-        if (argc < 3) {
-            std::cerr << "Error: Port required" << std::endl;
-            std::cout << "Usage: " << argv[0] << " node <port> [db_path] [connect_ip:port]" << std::endl;
+        if (argc < 4) {
+            std::cerr << "Error: missing arguments" << std::endl;
+            std::cout << "Usage: " << argv[0] << " node <p2p_port> <db_path> <metrics_port> [connect_to]" << std::endl;
             return 1;
         }
-        int node_port = std::stoi(argv[2]);
-        std::string dbPath = (argc > 3) ? argv[3] : "nexus.db";
-        std::string connectTo = (argc > 4) ? argv[4] : "";
+        
+        int p2p_port = std::stoi(argv[2]);
+        std::string dbPath = argv[3];
+        int metrics_port = std::stoi(argv[4]);
+        std::string connect_to = (argc > 5) ? argv[5] : "";
         
         std::cout << "=== Starting Nexus Node ===" << std::endl;
-        std::cout << "Node ID: node_" << node_port << std::endl;
-        std::cout << "P2P port: " << node_port << std::endl;
+        std::cout << "Node ID: node_" << p2p_port << std::endl;
+        std::cout << "P2P port: " << p2p_port << std::endl;
         std::cout << "Database: " << dbPath << std::endl;
-        if (!connectTo.empty()) {
-            std::cout << "Connect to: " << connectTo << std::endl;
+        std::cout << "Metrics port: " << metrics_port << std::endl;
+        if (!connect_to.empty()) {
+            std::cout << "Connect to: " << connect_to << std::endl;
         }
         
-        nexus::Node node(dbPath, node_port, "node_" + std::to_string(node_port));
+        nexus::Node node(dbPath, p2p_port, metrics_port, "node_" + std::to_string(p2p_port));
         node.start();
         
-        if (!connectTo.empty()) {
-            size_t colon = connectTo.find(':');
+        if (!connect_to.empty()) {
+            size_t colon = connect_to.find(':');
             if (colon != std::string::npos) {
-                std::string ip = connectTo.substr(0, colon);
-                int remote_port = std::stoi(connectTo.substr(colon + 1));
-                node.connectToPeer(ip, remote_port);
+                std::string ip = connect_to.substr(0, colon);
+                int port = std::stoi(connect_to.substr(colon + 1));
+                node.connectToPeer(ip, port);
             }
         }
         
         std::cout << "Node running. Press Enter to stop..." << std::endl;
         std::cin.get();
-        
         node.stop();
     }
 

@@ -9,6 +9,7 @@ find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)  # Добавил COMPONENTS system
 find_package(nlohmann_json REQUIRED)
+find_package(prometheus-cpp CONFIG REQUIRED)
 
 # Все исходные файлы проекта
 set(SOURCES
@@ -28,7 +29,7 @@ set(SOURCES
     # Ядро
     src/core/node.cpp
     # Метрики (будет позже)
-    # src/metrics/metrics_registry.cpp
+    src/metrics/metrics_registry.cpp
 )
 
 # Создаём исполняемый файл
@@ -49,6 +50,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${Boost_LIBRARIES}
     nlohmann_json::nlohmann_json
     pthread
+    prometheus-cpp::core
+    prometheus-cpp::pull
 )
 
 # Копируем schema.sql в директорию сборки

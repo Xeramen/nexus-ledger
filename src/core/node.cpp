@@ -1,18 +1,34 @@
 // src/core/node.cpp
 #include "node.h"
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 namespace nexus {
 
-Node::Node(const std::string& dbPath, int p2pPort, const std::string& nodeId)
-    : nodeId_(nodeId), p2pPort_(p2pPort)
+Node::Node(const std::string& dbPath, int p2pPort, int metricsPort, const std::string& nodeId)
+    : nodeId_(nodeId), p2pPort_(p2pPort), metricsPort_(metricsPort)
     , work_(std::make_unique<boost::asio::io_context::work>(ioContext_)) {
     
     blockchain_ = std::make_unique<Blockchain>(dbPath);
     server_ = std::make_unique<Server>(ioContext_, p2pPort);
+    
+    if (metricsPort_ > 0) {
+        try {
+            metrics_ = std::make_unique<MetricsRegistry>(metricsPort_);
+            std::cout << "📊 Metrics server started on port " << metricsPort_ << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "⚠️ Failed to start metrics: " << e.what() << std::endl;
+            metrics_ = nullptr;
+        }
+    } else {
+        std::cout << "ℹ️ Metrics disabled" << std::endl;
+        metrics_ = nullptr;
+    }
+    
     setupHandlers();
     
-    std::cout << "✅ Node created: " << nodeId_ << " (port " << p2pPort_ << ")" << std::endl;
+    std::cout << "✅ Node created: " << nodeId_ << " (P2P: " << p2pPort_ << ")" << std::endl;
 }
 
 Node::~Node() {
@@ -21,6 +37,7 @@ Node::~Node() {
 
 void Node::setupHandlers() {
     server_->set_message_handler([this](const Message& msg, std::shared_ptr<Peer> peer) {
+        if (metrics_) metrics_->incPacketsReceived(message_type_to_string(msg.type));
         handleMessage(msg, peer);
     });
     
@@ -38,6 +55,8 @@ void Node::start() {
     ioThread_ = std::thread([this]() {
         ioContext_.run();
     });
+    
+    updateMetrics();
     
     std::cout << "🚀 Node " << nodeId_ << " started on port " << p2pPort_ << std::endl;
 }
@@ -60,6 +79,7 @@ void Node::connectToPeer(const std::string& ip, int port) {
     auto client = std::make_shared<Client>(ioContext_);
     
     client->set_message_handler([this](const Message& msg, std::shared_ptr<Peer> peer) {
+        if (metrics_) metrics_->incPacketsReceived(message_type_to_string(msg.type));
         handleMessage(msg, peer);
     });
     
@@ -68,8 +88,9 @@ void Node::connectToPeer(const std::string& ip, int port) {
             clients_.push_back(client);
             auto handshake = Message::create_handshake(nodeId_, p2pPort_);
             client->send(handshake);
+            if (metrics_) metrics_->incPacketsSent("HANDSHAKE");
             syncWithPeer(client->get_peer());
-            updateStats();
+            updateMetrics();
         }
     });
     
@@ -80,20 +101,26 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
     std::cout << "📨 Received " << message_type_to_string(msg.type) << " from " << peer->get_endpoint() << std::endl;
     
     switch (msg.type) {
-        case MessageType::HANDSHAKE:
+        case MessageType::HANDSHAKE: {
             peer->id = msg.sender_id;
+            peer->state = PeerState::READY;
             std::cout << "🤝 Handshake with " << peer->id << std::endl;
+            updateMetrics();
             break;
-            
-        case MessageType::PING:
+        }
+        
+        case MessageType::PING: {
             peer->send(Message::create_pong(nodeId_).serialize());
+            if (metrics_) metrics_->incPacketsSent("PONG");
             break;
-            
-        case MessageType::GET_PEERS:
+        }
+        
+        case MessageType::GET_PEERS: {
             broadcastPeers();
             break;
-            
-        case MessageType::PEERS_LIST:
+        }
+        
+        case MessageType::PEERS_LIST: {
             if (msg.payload.is_array()) {
                 for (const auto& p : msg.payload) {
                     std::string ip = p.value("ip", "");
@@ -104,7 +131,8 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
                 }
             }
             break;
-            
+        }
+        
         case MessageType::GET_BLOCKS: {
             int from = msg.payload.value("from_height", 0);
             std::vector<Block> blocks;
@@ -121,10 +149,11 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
             response.sender_id = nodeId_;
             response.payload = jsonBlocks;
             peer->send(response.serialize());
+            if (metrics_) metrics_->incPacketsSent("BLOCKS_RESPONSE");
             break;
         }
         
-        case MessageType::BLOCKS_RESPONSE:
+        case MessageType::BLOCKS_RESPONSE: {
             if (msg.payload.is_array()) {
                 for (const auto& bj : msg.payload) {
                     Block block;
@@ -140,14 +169,17 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
                 }
             }
             break;
-            
+        }
+        
         case MessageType::NEW_TRANSACTION: {
             Transaction tx;
             tx.fromAddress = msg.payload.value("from", "");
             tx.toAddress = msg.payload.value("to", "");
             tx.amount = msg.payload.value("amount", 0.0);
-            blockchain_->addTransaction(tx);
-            broadcastTransaction(tx);
+            if (blockchain_->addTransaction(tx)) {
+                if (metrics_) metrics_->incTransactionsProcessed();
+                broadcastTransaction(tx);
+            }
             break;
         }
         
@@ -171,12 +203,26 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
         default:
             break;
     }
+    updateMetrics();
 }
 
 void Node::handleConnection(std::shared_ptr<Peer> peer) {
     std::cout << "🔌 New connection from " << peer->get_endpoint() << std::endl;
+    
+    // Запускаем чтение сообщений - используем лямбду, которая вызывает handleMessage
+    peer->read([this, peer](const std::string& data) {
+        try {
+            Message msg = Message::deserialize(data);
+            handleMessage(msg, peer);  // ← вызываем handleMessage напрямую
+        } catch (const std::exception& e) {
+            std::cout << "❌ Error parsing message: " << e.what() << std::endl;
+        }
+    });
+    
     auto handshake = Message::create_handshake(nodeId_, p2pPort_);
     peer->send(handshake.serialize());
+    if (metrics_) metrics_->incPacketsSent("HANDSHAKE");
+    updateMetrics();
 }
 
 void Node::syncWithPeer(std::shared_ptr<Peer> peer) {
@@ -185,11 +231,13 @@ void Node::syncWithPeer(std::shared_ptr<Peer> peer) {
     req.sender_id = nodeId_;
     req.payload = {{"from_height", blockchain_->getHeight() + 1}};
     peer->send(req.serialize());
+    if (metrics_) metrics_->incPacketsSent("GET_BLOCKS");
     
     Message getPeers;
     getPeers.type = MessageType::GET_PEERS;
     getPeers.sender_id = nodeId_;
     peer->send(getPeers.serialize());
+    if (metrics_) metrics_->incPacketsSent("GET_PEERS");
 }
 
 void Node::broadcastPeers() {
@@ -203,6 +251,7 @@ void Node::broadcastPeers() {
     msg.payload = arr;
     for (auto& c : clients_) {
         c->send(msg);
+        if (metrics_) metrics_->incPacketsSent("PEERS_LIST");
     }
 }
 
@@ -217,6 +266,7 @@ void Node::broadcastTransaction(const Transaction& tx) {
     };
     for (auto& c : clients_) {
         c->send(msg);
+        if (metrics_) metrics_->incPacketsSent("NEW_TRANSACTION");
     }
 }
 
@@ -236,12 +286,18 @@ void Node::broadcastBlock(const Block& block) {
     };
     for (auto& c : clients_) {
         c->send(msg);
+        if (metrics_) metrics_->incPacketsSent("NEW_BLOCK");
     }
 }
 
-void Node::updateStats() {
-    std::cout << "📊 Connected peers: " << clients_.size()
-              << " | Chain height: " << blockchain_->getHeight() << std::endl;
+void Node::updateMetrics() {
+    if (!metrics_) return;
+    std::cout << "📊 Updating metrics: peers=" << clients_.size() 
+              << ", height=" << blockchain_->getHeight() 
+              << ", mempool=" << blockchain_->getMempoolSize() << std::endl;
+    metrics_->setPeers(clients_.size());
+    metrics_->setBlockchainHeight(blockchain_->getHeight());
+    metrics_->setMempoolSize(blockchain_->getMempoolSize());
 }
 
 } // namespace nexus

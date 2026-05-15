@@ -94,29 +94,24 @@ void Peer::read(std::function<void(const std::string&)> callback) {
         return;
     }
     
-    // Используем shared_from_this() но только если Peer управляется shared_ptr
-    // В нашем случае проще захватить this и убедиться что объект жив
+    // УБИРАЕМ shared_from_this() - не нужно
     boost::asio::async_read_until(*socket, read_buffer_, '\n',
         [this, callback](const boost::system::error_code& error, size_t bytes) {
             if (!error) {
-                std::string data{
-                    boost::asio::buffers_begin(read_buffer_.data()),
-                    boost::asio::buffers_end(read_buffer_.data())
-                };
+                std::string data;
+                std::istream is(&read_buffer_);
+                std::getline(is, data);
                 read_buffer_.consume(bytes);
                 
-                if (!data.empty() && data.back() == '\n') {
-                    data.pop_back();
+                if (!data.empty()) {
+                    last_seen = time(nullptr);
+                    callback(data);
                 }
-                
-                last_seen = time(nullptr);
-                callback(data);
                 
                 // Продолжаем чтение
                 read(callback);
-            } else {
-                std::cout << "❌ Read error from " << get_endpoint() 
-                          << ": " << error.message() << std::endl;
+            } else if (error != boost::asio::error::operation_aborted) {
+                std::cout << "❌ Read error: " << error.message() << std::endl;
                 disconnect();
             }
         });

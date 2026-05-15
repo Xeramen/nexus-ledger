@@ -55,33 +55,17 @@ void Server::handle_accept(std::shared_ptr<Peer> peer, const boost::system::erro
         
         std::cout << "✅ New incoming connection from " << peer->get_endpoint() << std::endl;
         
-        // Вызываем обработчик подключения
         if (connection_handler_) {
             connection_handler_(peer);
         }
         
-        // Начинаем читать сообщения
-        peer->read([this, peer](const std::string& data) {
-            try {
-                Message msg = Message::deserialize(data);
-                msg.sender_id = peer->id.empty() ? msg.sender_id : peer->id;
-                
-                std::cout << "📨 Received " << message_type_to_string(msg.type) 
-                          << " from " << peer->get_endpoint() << std::endl;
-                
-                if (message_handler_) {
-                    message_handler_(msg, peer);
-                }
-            } catch (const std::exception& e) {
-                std::cout << "❌ Error parsing message from " << peer->get_endpoint() 
-                          << ": " << e.what() << std::endl;
-            }
-        });
+        // УБИРАЕМ ЭТУ СТРОКУ - read() будет вызван в connection_handler
+        // peer->read([this, peer](const std::string& data) { ... });
+        
     } else {
         std::cout << "❌ Accept error: " << error.message() << std::endl;
     }
     
-    // Продолжаем принимать новые подключения
     start_accept();
 }
 
