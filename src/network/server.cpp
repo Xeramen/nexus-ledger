@@ -46,6 +46,24 @@ void Server::start_accept() {
 
 void Server::handle_accept(std::shared_ptr<Peer> peer, const boost::system::error_code& error) {
     if (!error) {
+        // Проверяем первые байты на HTTP заголовки
+        peer->read([this, peer](const std::string& data) {
+            // Игнорируем HTTP запросы (они идут на P2P порт по ошибке)
+            if (data.size() > 0 && (data[0] == 'P' || data[0] == 'G' || data[0] == 'H')) {
+                if (data.find("POST") == 0 || data.find("GET") == 0 || data.find("HTTP") == 0) {
+                    // Убираем вывод, чтобы не засорять логи
+                    return;
+                }
+            }
+            try {
+                Message msg = Message::deserialize(data);
+                if (message_handler_) {
+                    message_handler_(msg, peer);
+                }
+            } catch (const std::exception& e) {
+                // Убираем вывод ошибки для HTTP запросов
+            }
+        });
         peer->state = PeerState::CONNECTED;
         peer->address = peer->socket->remote_endpoint().address().to_string();
         peer->port = peer->socket->remote_endpoint().port();

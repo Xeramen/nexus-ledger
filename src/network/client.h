@@ -33,6 +33,7 @@ public:
     bool is_connected() const { return peer_ && peer_->is_connected(); }
     bool is_connecting() const { return is_connecting_; }
     std::shared_ptr<Peer> get_peer() const { return peer_; }
+    void set_peer(std::shared_ptr<Peer> peer) { peer_ = peer; }
 };
 
 } // namespace nexus

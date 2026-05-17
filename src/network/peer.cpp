@@ -76,25 +76,23 @@ void Peer::send(const std::string& data) {
     }
     
     std::string message = data + "\n";
+    std::cout << "📤 Sending to " << get_endpoint() << ": " << data.substr(0, 100) << "..." << std::endl;
     
     boost::asio::async_write(*socket, boost::asio::buffer(message),
         [this](const boost::system::error_code& error, size_t bytes) {
             if (error) {
-                std::cout << "❌ Send error to " << get_endpoint() 
-                          << ": " << error.message() << std::endl;
+                std::cout << "❌ Send error to " << get_endpoint() << ": " << error.message() << std::endl;
                 disconnect();
             } else {
+                std::cout << "✅ Sent " << bytes << " bytes to " << get_endpoint() << std::endl;
                 last_seen = time(nullptr);
             }
         });
 }
 
 void Peer::read(std::function<void(const std::string&)> callback) {
-    if (!is_connected()) {
-        return;
-    }
+    if (!is_connected()) return;
     
-    // УБИРАЕМ shared_from_this() - не нужно
     boost::asio::async_read_until(*socket, read_buffer_, '\n',
         [this, callback](const boost::system::error_code& error, size_t bytes) {
             if (!error) {
@@ -103,14 +101,22 @@ void Peer::read(std::function<void(const std::string&)> callback) {
                 std::getline(is, data);
                 read_buffer_.consume(bytes);
                 
+                // ОЧИСТКА от лишних символов
+                while (!data.empty() && (data.back() == '\r' || data.back() == '\n')) {
+                    data.pop_back();
+                }
+                while (!data.empty() && (data.front() == '\r' || data.front() == '\n')) {
+                    data.erase(0, 1);
+                }
+                
                 if (!data.empty()) {
+                    std::cout << "📥 Raw data: [" << data << "]" << std::endl;
                     last_seen = time(nullptr);
                     callback(data);
                 }
                 
-                // Продолжаем чтение
                 read(callback);
-            } else if (error != boost::asio::error::operation_aborted) {
+            } else {
                 std::cout << "❌ Read error: " << error.message() << std::endl;
                 disconnect();
             }

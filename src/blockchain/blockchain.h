@@ -18,7 +18,7 @@ public:
     bool addBlock(Block& block);
     bool addTransaction(const Transaction& tx);
     std::optional<Block> getBlock(int height);
-    int getHeight() const;
+    int getHeight() const { return db->getLatestHeight(); }
     double getBalance(const std::string& address);
     
     Block createBlock(const std::string& miner);

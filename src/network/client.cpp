@@ -44,13 +44,18 @@ bool Client::connect(const std::string& address, int port, const std::string& no
             peer_->address = address;
             peer_->port = port;
             peer_->update_last_seen();
-            is_connecting_ = false;
             
-            std::cout << "✅ Outgoing connection to " << address << ":" << port << " established" << std::endl;
-            
-            if (connection_handler_) {
-                connection_handler_(true);
-            }
+            // НАЧИНАЕМ ЧИТАТЬ ОТВЕТЫ
+            peer_->read([this](const std::string& data) {
+                try {
+                    Message msg = Message::deserialize(data);
+                    if (message_handler_) {
+                        message_handler_(msg, peer_);
+                    }
+                } catch (const std::exception& e) {
+                    std::cout << "❌ Error parsing message: " << e.what() << std::endl;
+                }
+            });
             return true;
         } else {
             std::cout << "❌ Connection failed to " << address << ":" << port 

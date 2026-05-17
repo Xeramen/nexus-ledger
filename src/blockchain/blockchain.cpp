@@ -7,57 +7,52 @@ Blockchain::Blockchain(const std::string& dbPath)
 }
 
 bool Blockchain::addBlock(Block& block) {
-    std::cout << "Adding block " << block.height << " with " << block.transactions.size() << " transactions" << std::endl;
+    // Если блок уже есть - игнорируем
+    if (block.height <= getHeight()) {
+        return false;
+    }
+
+    // Если это следующий блок - добавляем напрямую
+    if (block.height == getHeight() + 1) {
+        if (!db->addBlock(block)) return false;
+        return true;
+    }
     
+    // Если это блок из будущего - сохраняем во временное хранилище
+    // (для простоты пока просто игнорируем)
+    std::cout << "⚠️ Block #" << block.height << " is too far ahead (current height=" << getHeight() << ")" << std::endl;
+    return false;
+    
+    // Проверяем, что блок новый (выше текущей цепи)
+    int currentHeight = db->getLatestHeight();
+    
+    if (block.height <= currentHeight) {
+        std::cout << "⚠️ Block #" << block.height << " is not newer than current height " << currentHeight << std::endl;
+        return false;
+    }
+    
+    // Проверяем prevHash (если не генезис-блок)
     if (block.height > 0) {
-        auto prev = db->getBlockByHeight(block.height - 1);
-        if (!prev.has_value()) {
-            std::cerr << "Previous block not found for height " << block.height - 1 << std::endl;
+        auto lastBlock = db->getBlockByHeight(currentHeight);
+        if (!lastBlock.has_value()) {
+            std::cerr << "❌ No last block found at height " << currentHeight << std::endl;
             return false;
         }
-        if (prev->hash != block.prevHash) {
-            std::cerr << "Invalid previous hash" << std::endl;
+        if (block.prevHash != lastBlock->hash) {
+            std::cerr << "⚠️ Invalid prevHash for block #" << block.height 
+                      << ": expected " << lastBlock->hash.substr(0, 16) 
+                      << ", got " << block.prevHash.substr(0, 16) << std::endl;
             return false;
         }
     }
     
-    if (!block.validate()) {
-        std::cerr << "Block validation failed" << std::endl;
-        return false;
-    }
-    
-    if (!db->beginTransaction()) {
-        std::cerr << "Failed to begin transaction" << std::endl;
-        return false;
-    }
-    
+    // Сохраняем в БД
     if (!db->addBlock(block)) {
-        std::cerr << "Failed to add block to database" << std::endl;
-        db->rollbackTransaction();
+        std::cerr << "❌ Failed to save block #" << block.height << " to database" << std::endl;
         return false;
     }
     
-    for (const auto& tx : block.transactions) {
-        if (!db->updateTransactionStatus(tx.txHash, "confirmed")) {
-            std::cerr << "Failed to update transaction status for " << tx.txHash << std::endl;
-            db->rollbackTransaction();
-            return false;
-        }
-    }
-    
-    if (!db->commitTransaction()) {
-        std::cerr << "Failed to commit transaction" << std::endl;
-        db->rollbackTransaction();
-        return false;
-    }
-    
-    for (const auto& tx : block.transactions) {
-        mempool.erase(tx.txHash);
-    }
-    
-    std::cout << "Block " << block.height << " added to chain with " 
-              << block.transactions.size() << " transactions" << std::endl;
-    
+    std::cout << "✅ Block #" << block.height << " added successfully" << std::endl;
     return true;
 }
 
@@ -139,10 +134,6 @@ Block Blockchain::createBlock(const std::string& miner) {
 
 std::optional<Block> Blockchain::getBlock(int height) {
     return db->getBlockByHeight(height);
-}
-
-int Blockchain::getHeight() const {
-    return db->getLatestHeight();
 }
 
 double Blockchain::getBalance(const std::string& address) {

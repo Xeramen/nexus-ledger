@@ -8,3 +8,8 @@ scrape_configs:
         - 'host.docker.internal:9100'
         - 'host.docker.internal:9101'
         - 'host.docker.internal:9102'
+        - 'host.docker.internal:9103'
+        - 'host.docker.internal:9104'
+        - 'host.docker.internal:9105'   
+#       - '10.177.40.76:9100'
+#       - '10.177.40.113:9101'

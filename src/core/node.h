@@ -32,6 +32,8 @@ private:
     void broadcastTransaction(const Transaction& tx);
     void broadcastBlock(const Block& block);
     void updateMetrics();  // ← ДОБАВЬ ЭТУ СТРОКУ
+    void startHttpServer();
+    void broadcastPeersToAll();
 
     std::string nodeId_;
     int p2pPort_;

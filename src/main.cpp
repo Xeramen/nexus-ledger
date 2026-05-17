@@ -183,6 +183,7 @@ void printUsage(const char* program_name) {
     std::cout << "  " << program_name << " client <ip> <port>            - Run P2P client" << std::endl;
     std::cout << "  " << program_name << " network-test                  - Run network test" << std::endl;
     std::cout << "  " << program_name << " node <p2p_port> <db_path> <metrics_port> [connect_to] - Run P2P node" << std::endl;
+    std::cout << "  " << program_name << " sendtx <node_port> <from> <to> <amount> - Send test transaction" << std::endl;
     std::cout << std::endl;
     std::cout << "Examples:" << std::endl;
     std::cout << "  " << program_name << " blockchain" << std::endl;
@@ -333,6 +334,23 @@ int main(int argc, char* argv[]) {
         std::cout << "Node running. Press Enter to stop..." << std::endl;
         std::cin.get();
         node.stop();
+    }
+
+    else if (command == "sendtx") {
+        if (argc < 5) {
+            std::cerr << "Usage: " << argv[0] << " sendtx <node_port> <from> <to> <amount>" << std::endl;
+            return 1;
+        }
+        int node_port = std::stoi(argv[2]);
+        std::string from = argv[3];
+        std::string to = argv[4];
+        double amount = std::stod(argv[5]);
+        
+        // Отправляем HTTP запрос к ноде
+        std::string cmd = "curl -X POST http://localhost:" + std::to_string(node_port + 1000) + 
+                        "/transaction -H \"Content-Type: application/json\" -d '{\"from\":\"" + 
+                        from + "\",\"to\":\"" + to + "\",\"amount\":" + std::to_string(amount) + "}'";
+        system(cmd.c_str());
     }
 
     else {
