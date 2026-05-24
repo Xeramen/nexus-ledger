@@ -388,3 +388,17 @@ std::vector<Transaction> LedgerDB::getMempool() {
 void LedgerDB::clearMempool() {
     execute("DELETE FROM mempool;");
 }
+
+uint64_t LedgerDB::getNextNonce(const std::string& address) {
+    const char* sql = "SELECT nonce FROM wallets WHERE address = ?;";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, address.c_str(), -1, SQLITE_STATIC);
+    
+    uint64_t nonce = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        nonce = sqlite3_column_int64(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return nonce + 1;
+}

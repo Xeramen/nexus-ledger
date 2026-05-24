@@ -31,18 +31,23 @@ private:
     void broadcastPeers();
     void broadcastTransaction(const Transaction& tx);
     void broadcastBlock(const Block& block);
-    void updateMetrics();  // ← ДОБАВЬ ЭТУ СТРОКУ
+    void updateMetrics();
     void startHttpServer();
     void broadcastPeersToAll();
+    void mine_loop();
+    void gossipPeers();
+    void handleFork(const std::vector<Block>& alternative_chain);
 
     std::string nodeId_;
     int p2pPort_;
-    int metricsPort_;  // ← ДОБАВЬ ЭТУ СТРОКУ
+    int metricsPort_;
     std::unique_ptr<Blockchain> blockchain_;
     std::unique_ptr<Server> server_;
     std::unique_ptr<MetricsRegistry> metrics_;
     std::vector<std::shared_ptr<Client>> clients_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> mining_{false};
+    std::thread mining_thread_;
 
     boost::asio::io_context ioContext_;
     std::unique_ptr<boost::asio::io_context::work> work_;

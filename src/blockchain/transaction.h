@@ -13,6 +13,7 @@ struct Transaction {
     long timestamp;
     std::string data;
     std::string status;
+    uint64_t nonce;  // Счётчик транзакций отправителя
     
     Transaction();
     std::string calculateHash() const;

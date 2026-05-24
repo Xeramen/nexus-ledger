@@ -3,6 +3,10 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 
 namespace nexus {
 
@@ -26,7 +30,7 @@ Node::Node(const std::string& dbPath, int p2pPort, int metricsPort, const std::s
         metrics_ = nullptr;
     }
     
-    // startHttpServer();  // ← ДОБАВЬ ЭТУ СТРОКУ
+    startHttpServer();
 
     setupHandlers();
     
@@ -57,6 +61,20 @@ void Node::start() {
     ioThread_ = std::thread([this]() {
         ioContext_.run();
     });
+
+    std::thread([this]() {
+    while (running_) {
+        std::this_thread::sleep_for(std::chrono::seconds(15));
+        for (auto& client : clients_) {
+            if (client->is_connected()) {
+                auto ping = Message::create_ping(nodeId_);
+                client->send(ping);
+            }
+        }
+    }
+    }).detach();
+
+    std::thread([this]() { gossipPeers(); }).detach(); // Запускаем периодическую рассылку пиров
     
     // Периодическая синхронизация каждые 30 секунд
     std::thread([this]() {
@@ -69,6 +87,10 @@ void Node::start() {
             }
         }
     }).detach();
+
+     // Запускаем майнинг
+    mining_ = true;
+    mining_thread_ = std::thread([this]() { mine_loop(); });
     
     updateMetrics();
     
@@ -182,6 +204,7 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
         case MessageType::BLOCKS_RESPONSE: {
             if (msg.payload.is_array()) {
                 std::cout << "📦 Received " << msg.payload.size() << " blocks" << std::endl;
+                int added = 0;
                 for (const auto& bj : msg.payload) {
                     Block block;
                     block.height = bj.value("height", 0);
@@ -193,15 +216,25 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
                     block.difficulty = bj.value("difficulty", 2.0);
                     block.minedBy = bj.value("minedBy", "");
                     
-                    std::cout << "  📦 Processing block #" << block.height << " (prev: " << block.prevHash.substr(0, 8) << "...)" << std::endl;
+                    // ← ПРОВЕРКА: если блок уже есть, пропускаем
+                    if (block.height <= blockchain_->getHeight()) {
+                        std::cout << "  ⏭️ Block #" << block.height << " already exists, skipping" << std::endl;
+                        continue;
+                    }
                     
+                    std::cout << "  📦 Processing block #" << block.height << " (prev: " << block.prevHash.substr(0, 8) << "...)" << std::endl;
+
                     if (blockchain_->addBlock(block)) {
+                        added++;
                         std::cout << "  ✅ Added block #" << block.height << std::endl;
                     } else {
                         std::cout << "  ❌ Failed to add block #" << block.height << std::endl;
                     }
                 }
-                updateMetrics();
+                if (added > 0) {
+                    updateMetrics();
+                    std::cout << "📊 Synced " << added << " new blocks" << std::endl;
+                }
             }
             break;
         }
@@ -211,29 +244,41 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
             tx.fromAddress = msg.payload.value("from", "");
             tx.toAddress = msg.payload.value("to", "");
             tx.amount = msg.payload.value("amount", 0.0);
+            tx.fee = 0.001;
+            tx.timestamp = time(nullptr);
+            tx.txHash = tx.calculateHash();
+            tx.signature = "cli_sig";
+            
             if (blockchain_->addTransaction(tx)) {
                 if (metrics_) metrics_->incTransactionsProcessed();
                 broadcastTransaction(tx);
+                std::cout << "💰 New transaction: " << tx.fromAddress << " -> " << tx.toAddress << " (" << tx.amount << ")" << std::endl;
             }
             break;
         }
         
         case MessageType::NEW_BLOCK: {
             Block block;
-            block.height = msg.payload.value("height", 0);
-            block.hash = msg.payload.value("hash", "");
-            block.prevHash = msg.payload.value("prevHash", "");
-            block.merkleRoot = msg.payload.value("merkleRoot", "");
-            block.timestamp = msg.payload.value("timestamp", 0L);
-            block.nonce = msg.payload.value("nonce", 0);
-            block.difficulty = msg.payload.value("difficulty", 2.0);
-            block.minedBy = msg.payload.value("minedBy", "");
-            if (blockchain_->addBlock(block)) {
-                broadcastBlock(block);
-                std::cout << "🧱 New block #" << block.height << " from " << peer->get_endpoint() << std::endl;
+            block.fromJson(msg.payload);
+            
+            // Если блок выше текущей цепи
+            if (block.height > blockchain_->getHeight()) {
+                // Добавляем блок
+                if (blockchain_->addBlock(block)) {
+                    // Останавливаем текущий майнинг (он больше не нужен)
+                    mining_ = false;
+                    if (mining_thread_.joinable()) {
+                        mining_thread_.join();
+                    }
+                    broadcastBlock(block);
+                    
+                    // Запускаем майнинг следующего блока
+                    mining_ = true;
+                    mining_thread_ = std::thread([this]() { mine_loop(); });
+                }
             }
             break;
-        }
+}
         
         default:
             break;
@@ -242,24 +287,17 @@ void Node::handleMessage(const Message& msg, std::shared_ptr<Peer> peer) {
 }
 
 void Node::handleConnection(std::shared_ptr<Peer> peer) {
-    // Проверяем существующего пира
-    for (const auto& client : clients_) {
-        if (client->get_peer()->address == peer->address) {
-            std::cout << "⚠️ Peer " << peer->address << " already connected, rejecting" << std::endl;
-            peer->disconnect();
-            return;
-        }
-    }
-
-    // Проверяем, не подключен ли уже этот пир
+    // Проверяем, не подключен ли уже ЭТОТ ЖЕ пир (по порту)
     for (const auto& client : clients_) {
         if (client->get_peer()->address == peer->address && 
             client->get_peer()->port == peer->port) {
-            std::cout << "⚠️ Peer " << peer->get_endpoint() << " already connected, ignoring" << std::endl;
+            std::cout << "⚠️ Peer " << peer->get_endpoint() << " already connected, rejecting" << std::endl;
             peer->disconnect();
             return;
         }
     }
+    
+    // НЕ БЛОКИРУЕМ подключения с одного IP, если порты разные!
     
     std::cout << "🔌 New connection from " << peer->get_endpoint() << std::endl;
     
@@ -278,7 +316,6 @@ void Node::handleConnection(std::shared_ptr<Peer> peer) {
     
     auto handshake = Message::create_handshake(nodeId_, p2pPort_);
     peer->send(handshake.serialize());
-    
     updateMetrics();
 }
 
@@ -286,15 +323,14 @@ void Node::syncWithPeer(std::shared_ptr<Peer> peer) {
     if (!peer || !peer->is_connected()) return;
     
     int my_height = blockchain_->getHeight();
-    std::cout << "🔄 [DEBUG] syncWithPeer: my height=" << my_height 
-              << ", requesting from height " << (my_height + 1) << std::endl;
     
     Message req;
     req.type = MessageType::GET_BLOCKS;
     req.sender_id = nodeId_;
-    req.payload = {{"from_height", 1}};
+    req.payload = {{"from_height", my_height + 1}};  // Запрашиваем ТОЛЬКО новые блоки
     peer->send(req.serialize());
-    std::cout << "🔄 [DEBUG] syncWithPeer: requesting ALL blocks from height 1" << std::endl;
+    
+    std::cout << "🔄 Requesting blocks from height " << (my_height + 1) << std::endl;
 }
 
 void Node::broadcastPeers() {
@@ -361,83 +397,105 @@ void Node::startHttpServer() {
     int http_port = p2pPort_ + 1000;
     
     std::thread([this, http_port]() {
-        boost::asio::io_context http_io;
-        boost::asio::ip::tcp::acceptor acceptor(http_io, 
-            boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), http_port));
+        int server_fd, client_fd;
+        struct sockaddr_in address;
+        int opt = 1;
+        int addrlen = sizeof(address);
+        
+        // Создаём сокет
+        server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (server_fd < 0) {
+            std::cerr << "❌ HTTP socket creation failed" << std::endl;
+            return;
+        }
+        
+        // Устанавливаем опции
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_port = htons(http_port);
+        
+        // Привязываем
+        if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+            std::cerr << "❌ HTTP bind failed on port " << http_port << std::endl;
+            close(server_fd);
+            return;
+        }
+        
+        // Начинаем слушать
+        if (listen(server_fd, 3) < 0) {
+            std::cerr << "❌ HTTP listen failed" << std::endl;
+            close(server_fd);
+            return;
+        }
         
         std::cout << "🌐 HTTP API started on port " << http_port << " (POST /transaction)" << std::endl;
         
         while (running_) {
-            auto socket = std::make_shared<boost::asio::ip::tcp::socket>(http_io);
-            boost::system::error_code ec;
-            acceptor.accept(*socket, ec);
+            client_fd = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
+            if (client_fd < 0) continue;
             
-            if (ec) continue;
+            // Читаем запрос
+            char buffer[4096] = {0};
+            int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
             
-            // Читаем HTTP запрос
-            boost::asio::streambuf buffer;
-            boost::system::error_code read_ec;
-            boost::asio::read_until(*socket, buffer, "\r\n\r\n", read_ec);
-            
-            if (read_ec) {
-                continue;
-            }
-            
-            std::istream is(&buffer);
-            std::string method, path, version;
-            is >> method >> path >> version;
-            
-            // Парсим заголовки
-            std::string line;
-            int content_length = 0;
-            while (std::getline(is, line) && line != "\r") {
-                if (line.find("Content-Length:") != std::string::npos) {
-                    content_length = std::stoi(line.substr(16));
-                }
-            }
-            
-            // Читаем тело запроса
-            std::string body;
-            if (content_length > 0) {
-                body.resize(content_length);
-                boost::asio::read(*socket, boost::asio::buffer(body), read_ec);
-            }
-            
-            std::string response;
-            
-            if (method == "POST" && path == "/transaction") {
-                try {
-                    if (body.empty()) {
-                        throw std::runtime_error("Empty body");
-                    }
-                    
-                    auto j = nlohmann::json::parse(body);
-                    
-                    Transaction tx;
-                    tx.fromAddress = j.value("from", "unknown");
-                    tx.toAddress = j.value("to", "unknown");
-                    tx.amount = j.value("amount", 0.0);
-                    tx.fee = 0.001;
-                    tx.timestamp = time(nullptr);
-                    tx.txHash = tx.calculateHash();
-                    tx.signature = "http_sig";
-                    
-                    if (blockchain_->addTransaction(tx)) {
-                        response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK";
-                        std::cout << "💰 HTTP transaction added: " << tx.fromAddress << " -> " << tx.toAddress << " (" << tx.amount << ")" << std::endl;
+            if (bytes_read > 0) {
+                std::string request(buffer);
+                
+                // Проверяем POST /transaction
+                if (request.find("POST /transaction") != std::string::npos) {
+                    // Находим тело запроса (после \r\n\r\n)
+                    size_t body_pos = request.find("\r\n\r\n");
+                    if (body_pos != std::string::npos) {
+                        std::string body = request.substr(body_pos + 4);
+                        
+                        // Убираем лишние пробелы и \r\n
+                        while (!body.empty() && (body.back() == '\r' || body.back() == '\n' || body.back() == ' ')) {
+                            body.pop_back();
+                        }
+                        while (!body.empty() && (body.front() == '\r' || body.front() == '\n' || body.front() == ' ')) {
+                            body.erase(0, 1);
+                        }
+                        
+                        try {
+                            auto j = nlohmann::json::parse(body);
+                            
+                            Transaction tx;
+                            tx.fromAddress = j.value("from", "unknown");
+                            tx.toAddress = j.value("to", "unknown");
+                            tx.amount = j.value("amount", 0.0);
+                            tx.fee = 0.001;
+                            tx.timestamp = time(nullptr);
+                            tx.txHash = tx.calculateHash();
+                            tx.signature = "http_sig";
+                            tx.nonce = 1;
+                            
+                            if (blockchain_->addTransaction(tx)) {
+                                std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK";
+                                write(client_fd, response.c_str(), response.size());
+                                std::cout << "💰 HTTP transaction added: " << tx.fromAddress << " -> " << tx.toAddress << " (" << tx.amount << ")" << std::endl;
+                            } else {
+                                std::string response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 11\r\n\r\nInsufficient";
+                                write(client_fd, response.c_str(), response.size());
+                            }
+                        } catch (const std::exception& e) {
+                            std::string response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\n\r\nInvalid JSON";
+                            write(client_fd, response.c_str(), response.size());
+                            std::cerr << "❌ HTTP error: " << e.what() << std::endl;
+                        }
                     } else {
-                        response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 11\r\n\r\nInsufficient";
+                        std::string response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\n\r\nNo Body";
+                        write(client_fd, response.c_str(), response.size());
                     }
-                } catch (const std::exception& e) {
-                    response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\n\r\nInvalid JSON";
-                    std::cerr << "❌ HTTP error: " << e.what() << std::endl;
+                } else {
+                    std::string response = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found";
+                    write(client_fd, response.c_str(), response.size());
                 }
-            } else {
-                response = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found";
             }
-            
-            boost::asio::write(*socket, boost::asio::buffer(response), ec);
+            close(client_fd);
         }
+        close(server_fd);
     }).detach();
 }
 
@@ -459,6 +517,94 @@ void Node::broadcastPeersToAll() {
         if (metrics_) metrics_->incPacketsSent("PEERS_LIST");
     }
     std::cout << "📡 Broadcasted " << clients_.size() << " peers to all connections" << std::endl;
+}
+
+void Node::mine_loop() {
+    while (mining_) {
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        
+        if (!mining_) break;
+        
+        // Не майним, если нет транзакций
+        if (blockchain_->getMempoolSize() == 0) {
+            continue;
+        }
+        
+        int target_height = blockchain_->getHeight() + 1;
+        
+        Block new_block = blockchain_->createBlock(nodeId_);
+        
+        // Майним с проверкой
+        bool mined = false;
+        for (int nonce = 0; nonce < 1000000 && !mined && mining_; nonce++) {
+            new_block.nonce = nonce;
+            new_block.hash = new_block.calculateHash();
+            
+            // Если кто-то уже нашёл блок этой высоты
+            if (blockchain_->getHeight() >= target_height) {
+                std::cout << "⏸️ Stopping mining, block #" << target_height << " already found" << std::endl;
+                break;
+            }
+            
+            std::string target(new_block.difficulty, '0');
+            if (new_block.hash.substr(0, new_block.difficulty) == target) {
+                if (blockchain_->addBlock(new_block)) {
+                    broadcastBlock(new_block);
+                    std::cout << "⛏️ MINED BLOCK #" << new_block.height << "!" << std::endl;
+                    mined = true;
+                }
+                break;
+            }
+        }
+        
+        // Небольшая пауза между попытками
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+void Node::gossipPeers() {
+    while (running_) {
+        std::this_thread::sleep_for(std::chrono::seconds(30));
+        
+        if (clients_.size() < 2) continue;
+        
+        // Выбираем случайного пира для рассылки
+        int idx = rand() % clients_.size();
+        auto target = clients_[idx];
+        
+        // Собираем список ВСЕХ известных пиров (кроме target)
+        nlohmann::json peer_list = nlohmann::json::array();
+        for (const auto& client : clients_) {
+            if (client != target) {
+                peer_list.push_back({
+                    {"ip", client->get_peer()->address},
+                    {"port", client->get_peer()->port}
+                });
+            }
+        }
+        
+        if (!peer_list.empty()) {
+            Message msg;
+            msg.type = MessageType::PEERS_LIST;
+            msg.sender_id = nodeId_;
+            msg.payload = peer_list;
+            target->send(msg);
+            
+            std::cout << "📡 Gossip: sent " << peer_list.size() 
+                      << " peers to " << target->get_peer()->get_endpoint() << std::endl;
+        }
+    }
+}
+
+void Node::handleFork(const std::vector<Block>& alternative_chain) {
+    if (alternative_chain.size() > blockchain_->getHeight() + 1) {
+        std::cout << "🔄 Switching to longer chain (length: " 
+                  << alternative_chain.size() << ")" << std::endl;
+        
+        for (const auto& block : alternative_chain) {
+            blockchain_->addBlock(const_cast<Block&>(block));
+        }
+    }
 }
 
 } // namespace nexus

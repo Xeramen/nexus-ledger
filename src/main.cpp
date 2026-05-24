@@ -337,20 +337,47 @@ int main(int argc, char* argv[]) {
     }
 
     else if (command == "sendtx") {
-        if (argc < 5) {
+        if (argc < 6) {
             std::cerr << "Usage: " << argv[0] << " sendtx <node_port> <from> <to> <amount>" << std::endl;
             return 1;
         }
+        
         int node_port = std::stoi(argv[2]);
         std::string from = argv[3];
         std::string to = argv[4];
         double amount = std::stod(argv[5]);
         
-        // Отправляем HTTP запрос к ноде
-        std::string cmd = "curl -X POST http://localhost:" + std::to_string(node_port + 1000) + 
-                        "/transaction -H \"Content-Type: application/json\" -d '{\"from\":\"" + 
-                        from + "\",\"to\":\"" + to + "\",\"amount\":" + std::to_string(amount) + "}'";
-        system(cmd.c_str());
+        // Подключаемся напрямую к ноде через сокет (P2P протокол)
+        try {
+            boost::asio::io_context io_context;
+            boost::asio::ip::tcp::socket socket(io_context);
+            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), node_port);
+            
+            socket.connect(endpoint);
+            
+            // Формируем P2P сообщение типа NEW_TRANSACTION
+            nlohmann::json msg;
+            msg["type"] = 7;  // NEW_TRANSACTION
+            msg["sender_id"] = "cli_sender";
+            msg["timestamp"] = time(nullptr);
+            msg["payload"] = {
+                {"from", from},
+                {"to", to},
+                {"amount", amount}
+            };
+            
+            std::string data = msg.dump() + "\n";
+            boost::asio::write(socket, boost::asio::buffer(data));
+            
+            std::cout << "✅ Transaction sent to node " << node_port << std::endl;
+            std::cout << "   From: " << from << " -> To: " << to << " Amount: " << amount << std::endl;
+            
+            socket.close();
+            
+        } catch (const std::exception& e) {
+            std::cerr << "❌ Failed to send transaction: " << e.what() << std::endl;
+            return 1;
+        }
     }
 
     else {

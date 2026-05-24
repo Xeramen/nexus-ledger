@@ -36,4 +36,7 @@ public:
     bool beginTransaction();
     bool commitTransaction();
     bool rollbackTransaction();
+
+    uint64_t getNextNonce(const std::string& address);
+    bool updateNonce(const std::string& address, uint64_t nonce);
 };
