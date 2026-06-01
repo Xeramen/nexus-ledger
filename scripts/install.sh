@@ -71,6 +71,7 @@ install_dependencies() {
         libboost-all-dev
         libssl-dev
         libsqlite3-dev
+        sqlite3
         nlohmann-json3-dev
         prometheus-cpp-dev
         curl
@@ -131,12 +132,14 @@ compile_project() {
 
 init_databases() {
     print_step "Инициализация баз данных..."
-    
+    if [ ! -f "src/storage/schema.sql" ]; then
+        print_error "schema.sql not found in src/storage/"
+        exit 1
+    fi
     mkdir -p data
     for i in {1..3}; do
-        sqlite3 "data/node${i}.db" < src/storage/schema.sql 2>/dev/null
+        sqlite3 "data/node${i}.db" < src/storage/schema.sql
     done
-    
     print_success "Базы данных созданы"
 }
 
