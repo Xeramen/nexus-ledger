@@ -16,12 +16,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 # HTTP API порты нод (P2P порт + 1000)
 NODES = [
-    {"name": "node1", "p2p": 8000, "http": 9000, "metrics": 9100},
-    {"name": "node2", "p2p": 8001, "http": 9001, "metrics": 9101},
-    {"name": "node3", "p2p": 8002, "http": 9002, "metrics": 9102},
-    #{"name": "node4", "p2p": 8003, "http": 9003, "metrics": 9103},
-    #{"name": "node5", "p2p": 8004, "http": 9004, "metrics": 9104},
-    #{"name": "node6", "p2p": 8005, "http": 9005, "metrics": 9105},
+    {"name": "node1", "ip": "139.100.207.199", "p2p": 8000, "http": 9000, "metrics": 9100},
+    {"name": "node2", "ip": "139.100.207.83",  "p2p": 8000, "http": 9000, "metrics": 9100},
+    {"name": "node3", "ip": "139.100.207.102", "p2p": 8000, "http": 9000, "metrics": 9100},
 ]
 
 # Генерация адресов
@@ -58,7 +55,7 @@ def get_network_stats():
     result = {}
     for node in NODES:
         try:
-            resp = requests.get(f"http://localhost:{node['metrics']}/metrics", timeout=2)
+            resp = requests.get(f"http://{node['ip']}:{node['metrics']}/metrics", timeout=2)
             if resp.status_code == 200:
                 lines = resp.text.split('\n')
                 for line in lines:
@@ -74,7 +71,7 @@ def get_network_stats():
 
 def send_transaction(node, from_addr, to_addr, amount, retry=2):
     """Отправляет одну транзакцию через HTTP API с повторами"""
-    url = f"http://localhost:{node['http']}/transaction"
+    url = f"http://{node['ip']}:{node['http']}/transaction"
     tx_data = {
         "from": from_addr,
         "to": to_addr,

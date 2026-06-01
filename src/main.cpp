@@ -331,8 +331,8 @@ int main(int argc, char* argv[]) {
         }
         
         std::cout << "Node running. Press Enter to stop..." << std::endl;
-        std::cin.get();
-        node.stop();
+        // std::cin.get();
+        // node.stop();
     }
 
     else {
