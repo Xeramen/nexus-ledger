@@ -32,9 +32,9 @@ Node::Node(const std::string& dbPath, int p2pPort, int metricsPort, const std::s
         // Здесь можно задать список seed-узлов. Для демо используем localhost с разными портами.
         // В реальной сети это должны быть известные стабильные узлы.
         std::vector<std::pair<std::string, int>> seeds = {
-            {"127.0.0.1", 8000},
-            {"127.0.0.1", 8001},
-            {"127.0.0.1", 8002}
+            {"139.100.207.199", 8000},
+            {"139.100.207.83", 8000},
+            {"139.100.207.102", 8000}
         };
         for (const auto& [ip, port] : seeds) {
             if (port != p2pPort_) {
