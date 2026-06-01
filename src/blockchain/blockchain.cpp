@@ -164,11 +164,13 @@ Block Blockchain::createBlock(const std::string& miner) {
         }
     }
 
-    // Удаляем невалидные транзакции
-    // for (const auto& p : to_remove) {
-    //     mempool.erase(p.tx_hash);
-    //     mempool_by_priority.erase(p);
-    // }
+    // Если не удалось добавить ни одной транзакции, хотя mempool не пуст – очищаем его полностью
+    if (txCount == 0 && !mempool.empty()) {
+        std::cout << "No transactions could be included, clearing entire mempool (" << mempool.size() << " txs)" << std::endl;
+        mempool.clear();
+        mempool_by_priority.clear();
+    }
+
     if (!to_remove.empty()) {
         std::cout << "createBlock: removed " << to_remove.size() << " invalid txs from mempool" << std::endl;
     }

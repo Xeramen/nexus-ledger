@@ -103,7 +103,7 @@ void Server::remove_peer(std::shared_ptr<Peer> peer) {
     auto it = std::find(clients_.begin(), clients_.end(), peer);
     if (it != clients_.end()) {
         clients_.erase(it);
-        std::cout << "🔌 Removed peer " << peer->get_endpoint() << std::endl;
+        std::cout << "Removed peer " << peer->get_endpoint() << std::endl;
     }
 }
 
