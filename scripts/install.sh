@@ -72,6 +72,7 @@ install_dependencies() {
         libssl-dev
         libsqlite3-dev
         nlohmann-json3-dev
+        prometheus-cpp-dev
         curl
         git
         python3

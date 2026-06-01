@@ -37,7 +37,6 @@ private:
     void mine_loop();
     void gossipPeers();
     void handleFork(const std::vector<Block>& alternative_chain);
-    void switchToChain(const std::vector<Block>& new_chain);
 
     std::string nodeId_;
     int p2pPort_;

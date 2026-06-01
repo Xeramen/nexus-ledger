@@ -769,46 +769,4 @@ void Node::handleFork(const std::vector<Block>& alternative_chain) {
     }
 }
 
-void Node::switchToChain(const std::vector<Block>& new_chain) {
-    if (new_chain.empty()) return;
-    
-    int current_height = blockchain_->getHeight();
-    int new_chain_height = new_chain.back().height;
-    
-    // Проверяем, что цепочка длиннее текущей
-    if (new_chain_height <= current_height) return;
-    
-    // Ищем общий предок (первый блок новой цепочки должен ссылаться на наш текущий last block)
-    auto last_block = blockchain_->getBlock(current_height);
-    if (last_block && new_chain[0].prevHash != last_block->hash) {
-        std::cerr << "Cannot switch: new chain does not extend current chain" << std::endl;
-        return;
-    }
-    
-    std::cout << "Switching to longer chain (new height " << new_chain_height 
-              << " vs current " << current_height << ")" << std::endl;
-    
-    // Откат текущих блоков (просто удалим блоки выше нового общего предка)
-    // Для простоты удалим все блоки начиная с new_chain[0].height
-    int start_height = new_chain[0].height;
-    for (int h = current_height; h >= start_height; --h) {
-        std::string sql = "DELETE FROM blocks WHERE height = " + std::to_string(h);
-        blockchain_->getDB()->execute(sql);
-        sql = "DELETE FROM transactions WHERE block_height = " + std::to_string(h);
-        blockchain_->getDB()->execute(sql);
-    }
-    
-    // Добавляем новую цепочку
-    for (const auto& block : new_chain) {
-        if (!blockchain_->addBlock(const_cast<Block&>(block))) {
-            std::cerr << "Failed to add block during chain switch" << std::endl;
-            return;
-        }
-    }
-    
-    blockchain_->cleanMempool();
-
-    std::cout << "Switched to chain with height " << blockchain_->getHeight() << std::endl;
-}
-
 } // namespace nexus

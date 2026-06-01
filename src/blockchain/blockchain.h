@@ -30,8 +30,6 @@ private:
     const double REWARD = 100.0;
     int target_block_time_seconds = 60;  // Целевое время между блоками (1 минута)
     int difficulty_adjustment_interval = 10;  // Пересчитывать сложность каждые 10 блоков
-
-    int calculateNewDifficulty();
     
 public:
     Blockchain(const std::string& dbPath);
@@ -43,7 +41,6 @@ public:
     int getHeight() const { return db->getLatestHeight(); }
     double getBalance(const std::string& address);
     bool replaceLastBlock(const Block& new_block);
-    bool rollbackToHeight(int target_height);
     int cleanMempool();
     
     int getCurrentDifficulty() const;

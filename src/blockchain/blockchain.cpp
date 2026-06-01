@@ -287,18 +287,6 @@ bool Blockchain::replaceLastBlock(const Block& new_block) {
     return true;
 }
 
-bool Blockchain::rollbackToHeight(int target_height) {
-    int current = getHeight();
-    if (target_height >= current) return false;
-    
-    // Удаляем блоки из БД
-    for (int h = current; h > target_height; --h) {
-        std::string sql = "DELETE FROM blocks WHERE height = " + std::to_string(h);
-        db->execute(sql);
-    }
-    return true;
-}
-
 int Blockchain::cleanMempool() {
     int removed = 0;
     std::vector<TxPriority> to_remove;
