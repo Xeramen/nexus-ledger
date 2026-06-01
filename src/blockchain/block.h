@@ -1,3 +1,4 @@
+// src/blockchain/block.h
 #pragma once
 #include <string>
 #include <vector>
@@ -22,8 +23,6 @@ struct Block {
     std::string calculateMerkleRoot() const;
     bool mine(int maxNonce = 1000000);
     bool validate() const;
-
-    // Добавь в конец public секции класса Block (после bool validate() const;):
 
     nlohmann::json toJson() const;
     void fromJson(const nlohmann::json& j);

@@ -15,12 +15,13 @@ enum class PeerState {
     READY
 };
 
-class Peer {
+class Peer : public std::enable_shared_from_this<Peer> {
 public:
     // Данные пира
     std::string id;
     std::string address;
     int port;
+    int p2p_port;
     PeerState state;
     std::unique_ptr<boost::asio::ip::tcp::socket> socket;
     time_t last_seen;

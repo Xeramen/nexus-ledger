@@ -1,5 +1,7 @@
+// src/blockchain/transaction.cpp
 #include "transaction.h"
 #include <sstream>
+#include <nlohmann/json.hpp>
 
 Transaction::Transaction() 
     : amount(0), fee(0), timestamp(time(nullptr)), status("pending") {
@@ -27,10 +29,16 @@ Transaction Transaction::createCoinbase(const std::string& to, double reward) {
 }
 
 std::string Transaction::toJson() const {
-    std::stringstream ss;
-    ss << "{\"hash\":\"" << txHash << "\","
-       << "\"from\":\"" << fromAddress << "\","
-       << "\"to\":\"" << toAddress << "\","
-       << "\"amount\":" << amount << "}";
-    return ss.str();
+    nlohmann::json j;
+    j["txHash"] = txHash;
+    j["from"] = fromAddress;
+    j["to"] = toAddress;
+    j["amount"] = amount;
+    j["fee"] = fee;
+    j["signature"] = signature;
+    j["timestamp"] = timestamp;
+    j["data"] = data;
+    j["status"] = status;
+    j["nonce"] = static_cast<uint64_t>(nonce);
+    return j.dump();
 }

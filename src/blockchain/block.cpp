@@ -1,3 +1,4 @@
+// src/blockchain/block.cpp
 #include "block.h"
 #include <sstream>
 #include <iostream>
@@ -61,8 +62,6 @@ bool Block::validate() const {
     return true;
 }
 
-// В конец файла block.cpp добавь:
-
 nlohmann::json Block::toJson() const {
     nlohmann::json j;
     j["height"] = height;
@@ -105,6 +104,7 @@ void Block::fromJson(const nlohmann::json& j) {
             tx.timestamp = txJson.value("timestamp", 0L);
             tx.data = txJson.value("data", "");
             tx.status = txJson.value("status", "pending");
+            tx.nonce = txJson.value("nonce", 0ULL);
             tx.txHash = tx.calculateHash();
             transactions.push_back(tx);
         }

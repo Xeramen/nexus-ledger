@@ -15,12 +15,12 @@ print_banner() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════════════╗"
     echo "║                                                                   ║"
-    echo "║     ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗                  ║"
-    echo "║     ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝                  ║"
-    echo "║     ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗                  ║"
-    echo "║     ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║                  ║"
-    echo "║     ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║                  ║"
-    echo "║     ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝                  ║"
+    echo "║     ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗                   ║"
+    echo "║     ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝                   ║"
+    echo "║     ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗                   ║"
+    echo "║     ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║                   ║"
+    echo "║     ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║                   ║"
+    echo "║     ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝                   ║"
     echo "║                                                                   ║"
     echo "║              ДЕЦЕНТРАЛИЗОВАННАЯ P2P СЕТЬ                          ║"
     echo "║                    С РАСПРЕДЕЛЁННЫМ РЕЕСТРОМ                      ║"
@@ -72,13 +72,11 @@ install_dependencies() {
         libssl-dev
         libsqlite3-dev
         nlohmann-json3-dev
-        prometheus-cpp-dev
         curl
         git
+        python3
         docker.io
         docker-compose
-        python3
-        python3-pip
     )
     
     for pkg in "${packages[@]}"; do
@@ -90,10 +88,9 @@ install_dependencies() {
         fi
     done
     
-    # Добавление пользователя в группу docker
-    sudo usermod -aG docker $USER 2>/dev/null
-    
-    print_success "Все зависимости установлены"
+    # Добавляем пользователя в группу docker
+    sudo usermod -aG docker $USER
+    print_success "Все зависимости установлены (Docker добавлен)"
 }
 
 clone_repo() {
@@ -107,7 +104,7 @@ clone_repo() {
         cd "$install_dir"
         git pull
     else
-        sudo git clone "$repo_url" "$install_dir" 2>/dev/null
+        sudo git clone "$repo_url" "$install_dir"
         sudo chown -R $USER:$USER "$install_dir"
     fi
     
@@ -124,8 +121,8 @@ compile_project() {
     mkdir -p "$build_dir"
     cd "$build_dir"
     
-    cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
-    make -j$(nproc) > /dev/null 2>&1
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    make -j$(nproc)
     
     cd ..
     print_success "Компиляция завершена"
@@ -142,6 +139,57 @@ init_databases() {
     print_success "Базы данных созданы"
 }
 
+ask_monitoring() {
+    echo ""
+    echo -e "${YELLOW}📊 Запустить контейнеры Prometheus и Grafana для мониторинга?${NC}"
+    echo "   (На сервере обычно не нужно, для демонстрации на компьютере – полезно)"
+    read -p "   Запустить? [y/N]: " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        setup_monitoring
+    else
+        print_info "Мониторинг не установлен (можно запустить позже: cd /opt/nexus-ledger && docker compose up -d)"
+    fi
+}
+
+setup_monitoring() {
+    print_step "Запуск Prometheus и Grafana через Docker Compose..."
+    cd /opt/nexus-ledger
+    if [[ -f "docker-compose.yml" ]]; then
+        sudo docker compose up -d
+        print_success "Prometheus и Grafana запущены"
+        print_info "Grafana: http://localhost:3009 (admin/admin), Prometheus: http://localhost:9090"
+    else
+        print_error "Файл docker-compose.yml не найден, пропускаем"
+    fi
+}
+
+setup_systemd() {
+    print_step "Настройка systemd сервиса для нод..."
+    
+    local service_file="/etc/systemd/system/nexus-node@.service"
+    sudo tee $service_file > /dev/null <<EOF
+[Unit]
+Description=Nexus Ledger Node %i
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=/opt/nexus-ledger/build
+ExecStart=/opt/nexus-ledger/build/nexus-ledger node %i /opt/nexus-ledger/data/node%i.db 91%i
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    print_success "Сервис создан: nexus-node@.service"
+}
+
 print_usage() {
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════════${NC}"
@@ -150,21 +198,23 @@ print_usage() {
     echo ""
     echo -e "${YELLOW}📁  Директория установки:${NC} /opt/nexus-ledger"
     echo ""
-    echo -e "${YELLOW}🚀  Запуск нод:${NC}"
-    echo "    cd /opt/nexus-ledger/build"
-    echo "    ./nexus-ledger node 8000 ../data/node1.db 9100        # Bootstrap нода"
-    echo "    ./nexus-ledger node 8001 ../data/node2.db 9101 127.0.0.1:8000"
+    echo -e "${YELLOW}🚀  Управление нодами (systemd):${NC}"
+    echo "    sudo systemctl start nexus-node@8000      # запуск ноды на порту 8000"
+    echo "    sudo systemctl enable nexus-node@8000     # автозапуск"
+    echo "    sudo systemctl status nexus-node@8000     # статус"
+    echo "    journalctl -u nexus-node@8000 -f          # просмотр логов"
     echo ""
     echo -e "${YELLOW}📊  Мониторинг:${NC}"
+    echo "    (если вы разрешили запуск контейнеров)"
     echo "    Prometheus: http://localhost:9090"
     echo "    Grafana: http://localhost:3009 (admin/admin)"
     echo ""
     echo -e "${YELLOW}🏭  Генератор нагрузки:${NC}"
     echo "    python3 /opt/nexus-ledger/scripts/load_generator.py"
     echo ""
-    echo -e "${YELLOW}🔧  Дополнительные команды:${NC}"
-    echo "    ./nexus-ledger blockchain                            # Тест блокчейна"
-    echo "    ./nexus-ledger network-test                          # Тест сети"
+    echo -e "${YELLOW}🔧  Ручной запуск (без systemd):${NC}"
+    echo "    cd /opt/nexus-ledger/build"
+    echo "    ./nexus-ledger node 8000 ../data/node1.db 9100"
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════════${NC}"
 }
@@ -176,7 +226,7 @@ main() {
     echo -e "${YELLOW}Добро пожаловать в установщик Nexus Ledger!${NC}"
     echo ""
     
-    read -p "Нажмите Enter для продолжения или Ctrl+C для отмены..." 
+    read -p "Нажмите Enter для продолжения или Ctrl+C для отмены..."
     
     check_os
     update_system
@@ -184,8 +234,14 @@ main() {
     clone_repo
     compile_project
     init_databases
+    ask_monitoring          # ← опрос про мониторинг
+    setup_systemd
     
     print_usage
+    
+    echo -e "${YELLOW}⚠️  Чтобы изменения группы docker вступили в силу, перезагрузитесь или выполните:${NC}"
+    echo "    newgrp docker"
+    echo ""
 }
 
 # Запуск

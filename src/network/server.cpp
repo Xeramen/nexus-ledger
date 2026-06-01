@@ -7,7 +7,7 @@ namespace nexus {
 Server::Server(boost::asio::io_context& io_context, int port)
     : io_context_(io_context),
       acceptor_(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)) {
-    std::cout << "🌐 Server listening on port " << port << std::endl;
+    std::cout << "Server listening on port " << port << std::endl;
 }
 
 Server::~Server() {
@@ -30,7 +30,7 @@ void Server::stop() {
     }
     clients_.clear();
     
-    std::cout << "🛑 Server stopped" << std::endl;
+    std::cout << "Server stopped" << std::endl;
 }
 
 void Server::start_accept() {
@@ -48,7 +48,6 @@ void Server::handle_accept(std::shared_ptr<Peer> peer, const boost::system::erro
     if (!error) {
         // Проверяем первые байты на HTTP заголовки
         peer->read([this, peer](const std::string& data) {
-            // Игнорируем HTTP запросы (они идут на P2P порт по ошибке)
             if (data.size() > 0 && (data[0] == 'P' || data[0] == 'G' || data[0] == 'H')) {
                 if (data.find("POST") == 0 || data.find("GET") == 0 || data.find("HTTP") == 0) {
                     // Убираем вывод, чтобы не засорять логи
@@ -61,7 +60,7 @@ void Server::handle_accept(std::shared_ptr<Peer> peer, const boost::system::erro
                     message_handler_(msg, peer);
                 }
             } catch (const std::exception& e) {
-                // Убираем вывод ошибки для HTTP запросов
+                // Убираем вывод ошибки для HTTP запросов для чистоты логов
             }
         });
         peer->state = PeerState::CONNECTED;
@@ -71,17 +70,14 @@ void Server::handle_accept(std::shared_ptr<Peer> peer, const boost::system::erro
         
         clients_.push_back(peer);
         
-        std::cout << "✅ New incoming connection from " << peer->get_endpoint() << std::endl;
+        std::cout << "New incoming connection from " << peer->get_endpoint() << std::endl;
         
         if (connection_handler_) {
             connection_handler_(peer);
         }
         
-        // УБИРАЕМ ЭТУ СТРОКУ - read() будет вызван в connection_handler
-        // peer->read([this, peer](const std::string& data) { ... });
-        
     } else {
-        std::cout << "❌ Accept error: " << error.message() << std::endl;
+        std::cout << "Accept error: " << error.message() << std::endl;
     }
     
     start_accept();

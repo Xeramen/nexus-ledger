@@ -1,3 +1,4 @@
+// src/blockchain/blockchain.h
 #pragma once
 #include <memory>
 #include <vector>
@@ -12,6 +13,7 @@ struct TxPriority {
     std::string tx_hash;
     time_t timestamp;
     
+    // Приоритет Mempool реализация
     bool operator<(const TxPriority& other) const {
         if (fee_per_byte != other.fee_per_byte) {
             return fee_per_byte > other.fee_per_byte;  // Выше комиссия - выше приоритет
@@ -33,12 +35,16 @@ private:
     
 public:
     Blockchain(const std::string& dbPath);
+    LedgerDB* getDB() { return db.get(); }
     
     bool addBlock(Block& block);
     bool addTransaction(const Transaction& tx);
     std::optional<Block> getBlock(int height);
     int getHeight() const { return db->getLatestHeight(); }
     double getBalance(const std::string& address);
+    bool replaceLastBlock(const Block& new_block);
+    bool rollbackToHeight(int target_height);
+    int cleanMempool();
     
     int getCurrentDifficulty() const;
     void adjustDifficulty();

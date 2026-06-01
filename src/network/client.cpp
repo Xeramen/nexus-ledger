@@ -9,7 +9,7 @@ Client::Client(boost::asio::io_context& io_context)
 
 bool Client::connect(const std::string& address, int port, const std::string& node_id) {
     if (is_connected() || is_connecting_) {
-        std::cout << "⚠️ Already connected or connecting to " 
+        std::cout << "Already connected or connecting to " 
                   << (peer_ ? peer_->get_endpoint() : "unknown") << std::endl;
         return false;
     }
@@ -27,7 +27,7 @@ bool Client::connect(const std::string& address, int port, const std::string& no
                 message_handler_(msg, peer_);
             }
         } catch (const std::exception& e) {
-            std::cout << "❌ Error parsing message: " << e.what() << std::endl;
+            // std::cout << "Error parsing message: " << e.what() << std::endl; Делаем логи чище
         }
     });
     
@@ -53,12 +53,12 @@ bool Client::connect(const std::string& address, int port, const std::string& no
                         message_handler_(msg, peer_);
                     }
                 } catch (const std::exception& e) {
-                    std::cout << "❌ Error parsing message: " << e.what() << std::endl;
+                    // std::cout << "Error parsing message: " << e.what() << std::endl; Делаем логи чище
                 }
             });
             return true;
         } else {
-            std::cout << "❌ Connection failed to " << address << ":" << port 
+            std::cout << "Connection failed to " << address << ":" << port 
                       << " - " << ec.message() << std::endl;
             is_connecting_ = false;
             peer_.reset();
@@ -69,7 +69,7 @@ bool Client::connect(const std::string& address, int port, const std::string& no
             return false;
         }
     } catch (const std::exception& e) {
-        std::cout << "❌ Exception during connection: " << e.what() << std::endl;
+        std::cout << "Exception during connection: " << e.what() << std::endl;
         is_connecting_ = false;
         peer_.reset();
         return false;
@@ -88,7 +88,7 @@ void Client::send(const Message& msg) {
     if (peer_ && peer_->is_connected()) {
         peer_->send(msg.serialize());
     } else {
-        std::cout << "⚠️ Cannot send message to " 
+        std::cout << "Cannot send message to " 
                   << (peer_ ? peer_->get_endpoint() : "unknown") 
                   << " - not connected" << std::endl;
     }

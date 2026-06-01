@@ -69,10 +69,6 @@ struct Message {
         return msg;
     }
     
-    // ============================================
-    // Фабричные методы для создания сообщений
-    // ============================================
-    
     static Message create_handshake(const std::string& node_id, int port, const std::string& version = "1.0") {
         Message msg(MessageType::HANDSHAKE);
         msg.sender_id = node_id;

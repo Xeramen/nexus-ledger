@@ -42,9 +42,27 @@ MetricsRegistry::MetricsRegistry(int port) {
         .Name("nexus_transactions_processed_total")
         .Help("Total transactions processed")
         .Register(*registry_);
+
+    hashrate_gauge_ = &prometheus::BuildGauge()
+        .Name("nexus_hashrate")
+        .Help("Current network hashrate (hashes per second)")
+        .Register(*registry_);
+    
+    difficulty_gauge_ = &prometheus::BuildGauge()
+        .Name("nexus_mining_difficulty")
+        .Help("Current mining difficulty")
+        .Register(*registry_);
     
     exposer_->RegisterCollectable(registry_);
-    std::cout << "✅ Metrics server started on port " << port << std::endl;
+    std::cout << "Metrics server started on port " << port << std::endl;
+}
+
+void MetricsRegistry::setHashrate(double hashrate) {
+    hashrate_gauge_->Add({}).Set(hashrate);
+}
+
+void MetricsRegistry::setMiningDifficulty(int difficulty) {
+    difficulty_gauge_->Add({}).Set(difficulty);
 }
 
 void MetricsRegistry::setPeers(int count) {

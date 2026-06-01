@@ -21,6 +21,8 @@ public:
     void incPacketsSent(const std::string& type);
     void incBlocksMined();
     void incTransactionsProcessed();
+    void setHashrate(double hashrate);
+    void setMiningDifficulty(int difficulty);
     
 private:
     std::shared_ptr<prometheus::Registry> registry_;
@@ -29,6 +31,8 @@ private:
     prometheus::Family<prometheus::Gauge>* peers_gauge_;
     prometheus::Family<prometheus::Gauge>* height_gauge_;
     prometheus::Family<prometheus::Gauge>* mempool_gauge_;
+    prometheus::Family<prometheus::Gauge>* hashrate_gauge_;
+    prometheus::Family<prometheus::Gauge>* difficulty_gauge_;
     prometheus::Family<prometheus::Counter>* packets_recv_counter_;
     prometheus::Family<prometheus::Counter>* packets_sent_counter_;
     prometheus::Family<prometheus::Counter>* blocks_counter_;

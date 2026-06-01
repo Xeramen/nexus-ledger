@@ -5,7 +5,8 @@
 namespace nexus {
 
 Peer::Peer(boost::asio::io_context& io_context)
-    : state(PeerState::DISCONNECTED),
+    : p2p_port(0),
+      state(PeerState::DISCONNECTED),
       socket(std::make_unique<boost::asio::ip::tcp::socket>(io_context)),
       last_seen(0),
       failed_attempts(0) {
@@ -17,7 +18,7 @@ Peer::~Peer() {
 
 void Peer::connect(const std::string& addr, int port) {
     if (state != PeerState::DISCONNECTED) {
-        std::cout << "⚠️ Peer already connecting, ignoring connect request" << std::endl;
+        std::cout << "Peer already connecting, ignoring connect request" << std::endl;
         return;
     }
     
@@ -25,7 +26,7 @@ void Peer::connect(const std::string& addr, int port) {
     this->port = port;
     state = PeerState::CONNECTING;
     
-    std::cout << "🔌 Connecting to " << addr << ":" << port << "..." << std::endl;
+    std::cout << "Connecting to " << addr << ":" << port << "..." << std::endl;
     
     // Копируем нужные значения для лямбды
     std::string target_addr = addr;
@@ -41,11 +42,11 @@ void Peer::connect(const std::string& addr, int port) {
             if (!error) {
                 state = PeerState::CONNECTED;
                 last_seen = time(nullptr);
-                std::cout << "✅ Connected to " << target_addr << ":" << target_port << std::endl;
+                std::cout << "Connected to " << target_addr << ":" << target_port << std::endl;
             } else {
                 state = PeerState::DISCONNECTED;
                 failed_attempts++;
-                std::cout << "❌ Failed to connect to " << target_addr << ":" << target_port 
+                std::cout << "Failed to connect to " << target_addr << ":" << target_port 
                           << " - " << error.message() << std::endl;
             }
         });
@@ -57,7 +58,7 @@ void Peer::disconnect() {
         socket->close(ec);
     }
     state = PeerState::DISCONNECTED;
-    std::cout << "🔌 Disconnected from " << get_endpoint() << std::endl;
+    std::cout << "Disconnected from " << get_endpoint() << std::endl;
 }
 
 bool Peer::is_connected() const {
@@ -71,20 +72,20 @@ std::string Peer::get_endpoint() const {
 
 void Peer::send(const std::string& data) {
     if (!is_connected()) {
-        std::cout << "⚠️ Cannot send to " << get_endpoint() << " - not connected" << std::endl;
+        std::cout << "Cannot send to " << get_endpoint() << " - not connected" << std::endl;
         return;
     }
     
     std::string message = data + "\n";
-    std::cout << "📤 Sending to " << get_endpoint() << ": " << data.substr(0, 100) << "..." << std::endl;
+    std::cout << "Sending to " << get_endpoint() << ": " << data.substr(0, 100) << "..." << std::endl;
     
     boost::asio::async_write(*socket, boost::asio::buffer(message),
         [this](const boost::system::error_code& error, size_t bytes) {
             if (error) {
-                std::cout << "❌ Send error to " << get_endpoint() << ": " << error.message() << std::endl;
+                std::cout << "Send error to " << get_endpoint() << ": " << error.message() << std::endl;
                 disconnect();
             } else {
-                std::cout << "✅ Sent " << bytes << " bytes to " << get_endpoint() << std::endl;
+                std::cout << "Sent " << bytes << " bytes to " << get_endpoint() << std::endl;
                 last_seen = time(nullptr);
             }
         });
@@ -92,31 +93,31 @@ void Peer::send(const std::string& data) {
 
 void Peer::read(std::function<void(const std::string&)> callback) {
     if (!is_connected()) return;
-    
+
+    auto self = shared_from_this();
     boost::asio::async_read_until(*socket, read_buffer_, '\n',
-        [this, callback](const boost::system::error_code& error, size_t bytes) {
+        [this, callback, self](const boost::system::error_code& error, size_t bytes) {
             if (!error) {
                 std::string data;
                 std::istream is(&read_buffer_);
                 std::getline(is, data);
                 read_buffer_.consume(bytes);
-                
-                // ОЧИСТКА от лишних символов
+
+                // Очистка от лишних символов
                 while (!data.empty() && (data.back() == '\r' || data.back() == '\n')) {
                     data.pop_back();
                 }
                 while (!data.empty() && (data.front() == '\r' || data.front() == '\n')) {
                     data.erase(0, 1);
                 }
-                
+
                 if (!data.empty()) {
-                    std::cout << "📥 Raw data: [" << data << "]" << std::endl;
                     last_seen = time(nullptr);
                     callback(data);
                 }
-                
+                // Продолжаем читать
                 read(callback);
-            } else {
+            } else if (error != boost::asio::error::operation_aborted) {
                 std::cout << "❌ Read error: " << error.message() << std::endl;
                 disconnect();
             }

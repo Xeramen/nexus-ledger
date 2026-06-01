@@ -1,6 +1,6 @@
 -- ============================================
 -- Nexus Ledger Database Schema
--- Запуск: sqlite3 ledger.db < schema.sql
+-- Запуск: sqlite3 nexus.db < schema.sql
 -- ============================================
 
 -- Отключаем FOREIGN KEY временно для инициализации
@@ -228,7 +228,7 @@ INSERT OR IGNORE INTO transactions (
     0,
     'SYSTEM',
     'genesis_miner',
-    100.0,
+    10000.0,
     0.0,
     'genesis_signature',
     strftime('%s', 'now'),

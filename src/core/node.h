@@ -37,6 +37,7 @@ private:
     void mine_loop();
     void gossipPeers();
     void handleFork(const std::vector<Block>& alternative_chain);
+    void switchToChain(const std::vector<Block>& new_chain);
 
     std::string nodeId_;
     int p2pPort_;
@@ -48,6 +49,9 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> mining_{false};
     std::thread mining_thread_;
+    std::thread mempool_cleaner_thread_;
+
+    std::vector<std::thread> background_threads_;
 
     boost::asio::io_context ioContext_;
     std::unique_ptr<boost::asio::io_context::work> work_;

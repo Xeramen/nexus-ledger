@@ -1,3 +1,4 @@
+// src/blockchain/transaction.h
 #pragma once
 #include <string>
 #include <ctime>
@@ -13,7 +14,7 @@ struct Transaction {
     long timestamp;
     std::string data;
     std::string status;
-    uint64_t nonce;  // Счётчик транзакций отправителя
+    uint64_t nonce;  // Счётчик транзакций отправителя. Защита от replay-атак
     
     Transaction();
     std::string calculateHash() const;

@@ -1,3 +1,4 @@
+// src/storage/ledger_db.h
 #pragma once
 #include <sqlite3.h>
 #include <string>
@@ -9,8 +10,7 @@
 class LedgerDB {
 private:
     sqlite3* db;
-    bool execute(const std::string& sql);
-    
+        
 public:
     LedgerDB(const std::string& path);
     ~LedgerDB();
@@ -21,6 +21,8 @@ public:
     std::optional<Block> getBlockByHeight(int height);
     std::optional<Block> getBlockByHash(const std::string& hash);
     int getLatestHeight();
+
+    bool execute(const std::string& sql);
     
     bool addTransaction(const Transaction& tx, int blockHeight = -1);
     bool updateTransactionStatus(const std::string& txHash, const std::string& status);
@@ -39,4 +41,9 @@ public:
 
     uint64_t getNextNonce(const std::string& address);
     bool updateNonce(const std::string& address, uint64_t nonce);
+
+    bool addPeer(const std::string& ip, int port, const std::string& node_id = "");
+    bool removePeer(const std::string& ip, int port);
+    std::vector<std::pair<std::string, int>> getPeers(int max_count = 50);
+    void updatePeerSeen(const std::string& ip, int port);
 };

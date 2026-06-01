@@ -30,11 +30,14 @@ cd nexus-ledger
 chmod +x scripts/install.sh
 sudo ./scripts/install.sh
 
+```
+
 ### Ручная установка
 
+```bash
 # 1. Установка зависимостей
 sudo apt install -y build-essential cmake libboost-all-dev \
-    libssl-dev libsqlite3-dev nlohmann-json3-dev libprometheus-cpp-dev
+    libssl-dev libsqlite3-dev nlohmann-json3-dev prometheus-cpp-dev
 
 # 2. Сборка
 mkdir build && cd build
@@ -43,5 +46,6 @@ cmake .. && make -j4
 # 3. Создание базы данных
 sqlite3 ../data/node1.db < ../src/storage/schema.sql
 
-# 4. Запуск bootstrap ноды
-./nexus-ledger node 8000 ../data/node1.db 9100
+# 4. Вывод возможных команд
+./nexus-ledger
+```

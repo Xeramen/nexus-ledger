@@ -1,3 +1,4 @@
+// src/storage/ledger_db.cpp
 #include "ledger_db.h"
 #include <iostream>
 #include <fstream>
@@ -401,4 +402,71 @@ uint64_t LedgerDB::getNextNonce(const std::string& address) {
     }
     sqlite3_finalize(stmt);
     return nonce + 1;
+}
+
+bool LedgerDB::addPeer(const std::string& ip, int port, const std::string& node_id) {
+    const char* sql = "INSERT OR IGNORE INTO peers (ip_address, port, node_id, last_seen, failed_attempts) VALUES (?, ?, ?, ?, 0);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to prepare addPeer: " << sqlite3_errmsg(db) << std::endl;
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, ip.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, port);
+    sqlite3_bind_text(stmt, 3, node_id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt, 4, time(nullptr));
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool LedgerDB::removePeer(const std::string& ip, int port) {
+    std::string sql = "DELETE FROM peers WHERE ip_address = '" + ip + "' AND port = " + std::to_string(port) + ";";
+    return execute(sql);
+}
+
+std::vector<std::pair<std::string, int>> LedgerDB::getPeers(int max_count) {
+    std::vector<std::pair<std::string, int>> result;
+    const char* sql = "SELECT ip_address, port FROM peers ORDER BY last_seen DESC LIMIT ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to prepare getPeers: " << sqlite3_errmsg(db) << std::endl;
+        return result;
+    }
+    sqlite3_bind_int(stmt, 1, max_count);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* ip = (const char*)sqlite3_column_text(stmt, 0);
+        int port = sqlite3_column_int(stmt, 1);
+        if (ip) {
+            result.emplace_back(std::string(ip), port);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+void LedgerDB::updatePeerSeen(const std::string& ip, int port) {
+    const char* sql = "UPDATE peers SET last_seen = ? WHERE ip_address = ? AND port = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, time(nullptr));
+        sqlite3_bind_text(stmt, 2, ip.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_int(stmt, 3, port);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+bool LedgerDB::updateNonce(const std::string& address, uint64_t nonce) {
+    const char* sql = "UPDATE wallets SET nonce = ? WHERE address = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to prepare updateNonce: " << sqlite3_errmsg(db) << std::endl;
+        return false;
+    }
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(nonce));
+    sqlite3_bind_text(stmt, 2, address.c_str(), -1, SQLITE_STATIC);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }

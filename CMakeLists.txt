@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Поиск зависимостей
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
-find_package(Boost REQUIRED COMPONENTS system)  # Добавил COMPONENTS system
+find_package(Boost REQUIRED COMPONENTS system)
 find_package(nlohmann_json REQUIRED)
 find_package(prometheus-cpp CONFIG REQUIRED)
 
@@ -28,7 +28,7 @@ set(SOURCES
     src/network/client.cpp
     # Ядро
     src/core/node.cpp
-    # Метрики (будет позже)
+    # Метрики
     src/metrics/metrics_registry.cpp
 )
 

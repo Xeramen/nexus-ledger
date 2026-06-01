@@ -1,0 +1,16 @@
+# scripts/systemd.service
+# /etc/systemd/system/nexus-node.service
+[Unit]
+Description=Nexus Ledger Node
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/nexus-ledger/build
+ExecStart=/opt/nexus-ledger/build/nexus-ledger node 8000 /opt/nexus-ledger/data/node1.db 9100
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

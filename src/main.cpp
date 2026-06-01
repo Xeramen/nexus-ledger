@@ -18,8 +18,8 @@ using namespace nexus;
 
 bool running = true;
 
-void signal_handler(int signal) {
-    std::cout << "\n🛑 Shutting down..." << std::endl;
+void signal_handler(int /*signal*/) {
+    std::cout << "\nShutting down..." << std::endl;
     running = false;
 }
 
@@ -103,7 +103,7 @@ void testNetwork(unsigned short port) {
     nexus::Server server(io_context, port);
     
     server.set_connection_handler([](std::shared_ptr<nexus::Peer> peer) {
-        std::cout << "🔌 New connection from: " << peer->get_endpoint() << std::endl;
+        std::cout << "New connection from: " << peer->get_endpoint() << std::endl;
         
         // Отправляем приветственное сообщение
         auto msg = nexus::Message::create_handshake("test-server", 8000);
@@ -111,7 +111,7 @@ void testNetwork(unsigned short port) {
     });
     
     server.set_message_handler([](const nexus::Message& msg, std::shared_ptr<nexus::Peer> peer) {
-        std::cout << "📨 Received: " << nexus::message_type_to_string(msg.type) 
+        std::cout << "Received: " << nexus::message_type_to_string(msg.type) 
                   << " from " << peer->get_endpoint() << std::endl;
         
         // Отвечаем на ping
@@ -129,7 +129,7 @@ void testNetwork(unsigned short port) {
         io_context.run();
     });
     
-    std::cout << "✅ Server running. Press Enter to stop..." << std::endl;
+    std::cout << "Server running. Press Enter to stop..." << std::endl;
     std::cin.get();
     
     server.stop();
@@ -149,19 +149,19 @@ void testClient(const std::string& server_ip, int server_port) {
     
     client.set_connection_handler([&client](bool connected) {
         if (connected) {
-            std::cout << "✅ Connected to server!" << std::endl;
+            std::cout << "Connected to server!" << std::endl;
             
             // Отправляем ping
             auto ping = nexus::Message::create_ping("test-client");
             client.send(ping);
-            std::cout << "📤 Sent PING" << std::endl;
+            std::cout << "Sent PING" << std::endl;
         } else {
-            std::cout << "❌ Connection failed!" << std::endl;
+            std::cout << "Connection failed!" << std::endl;
         }
     });
     
-    client.set_message_handler([](const nexus::Message& msg, std::shared_ptr<nexus::Peer> peer) {
-        std::cout << "📨 Received: " << nexus::message_type_to_string(msg.type) << std::endl;
+    client.set_message_handler([](const nexus::Message& msg, std::shared_ptr<nexus::Peer> /*peer*/) {
+        std::cout << "Received: " << nexus::message_type_to_string(msg.type) << std::endl;
     });
     
     client.connect(server_ip, server_port, "test-client");
@@ -183,7 +183,6 @@ void printUsage(const char* program_name) {
     std::cout << "  " << program_name << " client <ip> <port>            - Run P2P client" << std::endl;
     std::cout << "  " << program_name << " network-test                  - Run network test" << std::endl;
     std::cout << "  " << program_name << " node <p2p_port> <db_path> <metrics_port> [connect_to] - Run P2P node" << std::endl;
-    std::cout << "  " << program_name << " sendtx <node_port> <from> <to> <amount> - Send test transaction" << std::endl;
     std::cout << std::endl;
     std::cout << "Examples:" << std::endl;
     std::cout << "  " << program_name << " blockchain" << std::endl;
@@ -277,7 +276,7 @@ int main(int argc, char* argv[]) {
             std::cout << "[CLIENT] Received: " << nexus::message_type_to_string(msg.type) << std::endl;
             if (msg.type == nexus::MessageType::PONG) {
                 received_response = true;
-                std::cout << "[CLIENT] ✅ PONG received! Network works!" << std::endl;
+                std::cout << "[CLIENT] PONG received! Network works!" << std::endl;
             }
         });
         
@@ -290,9 +289,9 @@ int main(int argc, char* argv[]) {
         io_thread.join();
         
         if (received_response) {
-            std::cout << "\n✅ NETWORK TEST PASSED!" << std::endl;
+            std::cout << "\nNETWORK TEST PASSED!" << std::endl;
         } else {
-            std::cout << "\n❌ NETWORK TEST FAILED - No response received" << std::endl;
+            std::cout << "\nNETWORK TEST FAILED - No response received" << std::endl;
         }
         
         server_thread.join();
@@ -334,50 +333,6 @@ int main(int argc, char* argv[]) {
         std::cout << "Node running. Press Enter to stop..." << std::endl;
         std::cin.get();
         node.stop();
-    }
-
-    else if (command == "sendtx") {
-        if (argc < 6) {
-            std::cerr << "Usage: " << argv[0] << " sendtx <node_port> <from> <to> <amount>" << std::endl;
-            return 1;
-        }
-        
-        int node_port = std::stoi(argv[2]);
-        std::string from = argv[3];
-        std::string to = argv[4];
-        double amount = std::stod(argv[5]);
-        
-        // Подключаемся напрямую к ноде через сокет (P2P протокол)
-        try {
-            boost::asio::io_context io_context;
-            boost::asio::ip::tcp::socket socket(io_context);
-            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), node_port);
-            
-            socket.connect(endpoint);
-            
-            // Формируем P2P сообщение типа NEW_TRANSACTION
-            nlohmann::json msg;
-            msg["type"] = 7;  // NEW_TRANSACTION
-            msg["sender_id"] = "cli_sender";
-            msg["timestamp"] = time(nullptr);
-            msg["payload"] = {
-                {"from", from},
-                {"to", to},
-                {"amount", amount}
-            };
-            
-            std::string data = msg.dump() + "\n";
-            boost::asio::write(socket, boost::asio::buffer(data));
-            
-            std::cout << "✅ Transaction sent to node " << node_port << std::endl;
-            std::cout << "   From: " << from << " -> To: " << to << " Amount: " << amount << std::endl;
-            
-            socket.close();
-            
-        } catch (const std::exception& e) {
-            std::cerr << "❌ Failed to send transaction: " << e.what() << std::endl;
-            return 1;
-        }
     }
 
     else {
