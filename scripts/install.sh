@@ -168,23 +168,38 @@ setup_monitoring() {
     fi
 }
 
+ask_systemd() {
+    echo ""
+    echo -e "${YELLOW}🔧 Создать systemd службу для автоматического запуска ноды?${NC}"
+    echo "   (Рекомендуется для сервера. Будет создан сервис nexus-node-8000)"
+    read -p "   Создать? [y/N]: " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        setup_systemd
+    else
+        print_info "Systemd служба не создана (можно запускать ноду вручную)"
+    fi
+}
+
 setup_systemd() {
-    print_step "Настройка systemd сервиса для нод..."
+    print_step "Настройка systemd сервиса для ноды на порту 8000..."
     
     local service_file="/etc/systemd/system/nexus-node@.service"
     sudo tee $service_file > /dev/null <<EOF
 [Unit]
-Description=Nexus Ledger Node %i
+Description=Nexus Ledger Node (port 8000)
 After=network.target
 
 [Service]
 Type=simple
 User=$USER
 WorkingDirectory=/opt/nexus-ledger/build
-ExecStart=/opt/nexus-ledger/build/nexus-ledger node %i /opt/nexus-ledger/data/node%i.db 91%i
+ExecStart=/opt/nexus-ledger/build/nexus-ledger node 8000 /opt/nexus-ledger/data/node1.db 9100
 Restart=always
 RestartSec=10
 LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -192,6 +207,8 @@ EOF
 
     sudo systemctl daemon-reload
     print_success "Сервис создан: nexus-node@.service"
+    print_info "Для запуска: sudo systemctl start nexus-node@"
+    print_info "Для автозапуска: sudo systemctl enable nexus-node@"
 }
 
 print_usage() {
@@ -239,7 +256,7 @@ main() {
     compile_project
     init_databases
     ask_monitoring          # ← опрос про мониторинг
-    setup_systemd
+    ask_systemd
     
     print_usage
     
