@@ -33,8 +33,8 @@ Node::Node(const std::string& dbPath, int p2pPort, int metricsPort, const std::s
         // В реальной сети это должны быть известные стабильные узлы.
         std::vector<std::pair<std::string, int>> seeds = {
             {"139.100.207.199", 8000},
-            {"139.100.207.83", 8000},
-            {"139.100.207.102", 8000}
+            {"139.100.207.83", 8001},
+            {"139.100.207.102", 8002}
         };
         for (const auto& [ip, port] : seeds) {
             if (port != p2pPort_) {

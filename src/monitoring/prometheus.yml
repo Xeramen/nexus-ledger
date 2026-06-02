@@ -6,8 +6,8 @@ scrape_configs:
     static_configs:
       - targets:
         - '139.100.207.199:9100'
-        - '139.100.207.83:9100'
-        - '139.100.207.102:9100'
+        - '139.100.207.83:9101'
+        - '139.100.207.102:9102'
         - 'host.docker.internal:9103'
         - 'host.docker.internal:9104'
         - 'host.docker.internal:9105'   

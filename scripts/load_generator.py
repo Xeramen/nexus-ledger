@@ -17,8 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 # HTTP API порты нод (P2P порт + 1000)
 NODES = [
     {"name": "node1", "ip": "139.100.207.199", "p2p": 8000, "http": 9000, "metrics": 9100},
-    {"name": "node2", "ip": "139.100.207.83",  "p2p": 8000, "http": 9000, "metrics": 9100},
-    {"name": "node3", "ip": "139.100.207.102", "p2p": 8000, "http": 9000, "metrics": 9100},
+    {"name": "node2", "ip": "139.100.207.83",  "p2p": 8001, "http": 9001, "metrics": 9101},
+    {"name": "node3", "ip": "139.100.207.102", "p2p": 8002, "http": 9002, "metrics": 9102},
 ]
 
 # Генерация адресов
