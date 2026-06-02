@@ -7,6 +7,9 @@
 #include <csignal>
 #include <boost/asio.hpp>
 
+#include <csignal>
+#include <sys/signalfd.h>
+
 #include "blockchain/blockchain.h"
 #include "network/server.h"
 #include "network/client.h"
@@ -303,12 +306,12 @@ int main(int argc, char* argv[]) {
             std::cout << "Usage: " << argv[0] << " node <p2p_port> <db_path> <metrics_port> [connect_to]" << std::endl;
             return 1;
         }
-        
+
         int p2p_port = std::stoi(argv[2]);
         std::string dbPath = argv[3];
         int metrics_port = std::stoi(argv[4]);
         std::string connect_to = (argc > 5) ? argv[5] : "";
-        
+
         std::cout << "=== Starting Nexus Node ===" << std::endl;
         std::cout << "Node ID: node_" << p2p_port << std::endl;
         std::cout << "P2P port: " << p2p_port << std::endl;
@@ -317,10 +320,10 @@ int main(int argc, char* argv[]) {
         if (!connect_to.empty()) {
             std::cout << "Connect to: " << connect_to << std::endl;
         }
-        
+
         nexus::Node node(dbPath, p2p_port, metrics_port, "node_" + std::to_string(p2p_port));
         node.start();
-        
+
         if (!connect_to.empty()) {
             size_t colon = connect_to.find(':');
             if (colon != std::string::npos) {
@@ -329,10 +332,21 @@ int main(int argc, char* argv[]) {
                 node.connectToPeer(ip, port);
             }
         }
-        
-        std::cout << "Node running. Press Enter to stop..." << std::endl;
-        // std::cin.get();
-        // node.stop();
+
+        std::cout << "Node running. Press Ctrl+C to stop..." << std::endl;
+
+        // Ждём сигнала завершения
+        sigset_t wait_mask;
+        sigemptyset(&wait_mask);
+        sigaddset(&wait_mask, SIGINT);
+        sigaddset(&wait_mask, SIGTERM);
+        int sig;
+        sigwait(&wait_mask, &sig);
+
+        std::cout << "\nShutting down..." << std::endl;
+        node.stop();
+
+        return 0;
     }
 
     else {
