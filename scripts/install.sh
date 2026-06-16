@@ -160,7 +160,7 @@ setup_monitoring() {
     print_step "Запуск Prometheus и Grafana через Docker Compose..."
     cd /opt/nexus-ledger/src/monitoring
     if [[ -f "docker-compose.yml" ]]; then
-        sudo docker compose up -d
+        sudo docker-compose up -d
         print_success "Prometheus и Grafana запущены"
         print_info "Grafana: http://localhost:3009 (admin/admin), Prometheus: http://localhost:9090"
     else

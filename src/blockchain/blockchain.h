@@ -44,7 +44,6 @@ public:
     int cleanMempool();
     
     int getCurrentDifficulty() const;
-    void adjustDifficulty();
     Block createBlock(const std::string& miner);
     std::vector<Transaction> getMempoolTransactions();
     int getMempoolSize() const { return mempool.size(); }

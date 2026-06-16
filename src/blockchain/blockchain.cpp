@@ -222,10 +222,10 @@ int Blockchain::getCurrentDifficulty() const {
     int new_diff = current_diff;
 
     if (time_span < expected_time * 0.75) {
-        // Слишком быстро → увеличиваем сложность
+        // Слишком быстро - увеличиваем сложность
         new_diff = current_diff * 2;
     } else if (time_span > expected_time * 1.25) {
-        // Слишком медленно → уменьшаем сложность
+        // Слишком медленно - уменьшаем сложность
         new_diff = std::max(1, current_diff / 2);
     }
 
@@ -242,11 +242,6 @@ int Blockchain::getCurrentDifficulty() const {
               << " (time_span=" << time_span << "s, expected=" << expected_time << "s)" << std::endl;
 
     return new_diff;
-}
-
-void Blockchain::adjustDifficulty() {
-    // Масштабирование сложности. Для дальнейшего обновления 
-    std::cout << "Difficulty will be adjusted for next blocks" << std::endl;
 }
 
 bool Blockchain::replaceLastBlock(const Block& new_block) {
